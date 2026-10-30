@@ -1,9 +1,79 @@
-﻿<Window x:Class="Banji.Views.BubbleWindow"
+<Window x:Class="Banji.Views.BubbleWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BubbleWindow" Width="360" Height="140" WindowStyle="None" AllowsTransparency="True" Background="Transparent" ShowInTaskbar="False" Topmost="True">
-    <Grid>
-        <TextBlock Text="BubbleWindow（开发中）" HorizontalAlignment="Center" VerticalAlignment="Center"
-                   FontFamily="{StaticResource Font.Regular}" FontSize="16" Foreground="#6B7280"/>
+        Title="BanjiBubble"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        ResizeMode="NoResize"
+        WindowStartupLocation="Manual"
+        Width="280"
+        Height="150"
+        FontFamily="{StaticResource Font.Regular}"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Ideal">
+    <!-- 对话气泡：白底半透明（可调）+ 可选高斯模糊底 + 2px #3E6BFF 描边 + #2E69FF 文字。
+         独立置顶窗口，每次显示重新 SetWindowPos(HWND_TOPMOST)；不抢焦点。 -->
+    <Grid x:Name="Outer" Margin="20,18,26,24">
+        <Border x:Name="Card"
+                CornerRadius="22"
+                BorderThickness="2"
+                BorderBrush="#3E6BFF"
+                Background="#80FFFFFF"
+                MaxWidth="380">
+            <Border.Effect>
+                <DropShadowEffect Color="#1E3A8A" BlurRadius="22" ShadowDepth="3" Direction="270" Opacity="0.24" />
+            </Border.Effect>
+            <Grid x:Name="CardInner">
+                <!-- 高斯模糊背景（显示时截取气泡背后的屏幕区域并模糊） -->
+                <Image x:Name="Backdrop" Stretch="Fill" Visibility="Collapsed" IsHitTestVisible="False">
+                    <Image.Effect>
+                        <BlurEffect x:Name="BackdropBlur" Radius="14" RenderingBias="Performance" />
+                    </Image.Effect>
+                </Image>
+                <!-- 白色半透明底 -->
+                <Border x:Name="Tint" Background="#80FFFFFF" CornerRadius="20" Visibility="Collapsed" IsHitTestVisible="False" />
+
+                <Grid x:Name="ContentHost" Margin="22,16,22,17">
+                    <!-- 台词（打字机）：隐藏一份全文用于稳定尺寸，避免逐字改变气泡大小 -->
+                    <Grid x:Name="QuipPanel" Visibility="Collapsed" MinWidth="112">
+                        <TextBlock x:Name="QuipMeasure" Opacity="0" IsHitTestVisible="False"
+                                   FontFamily="{StaticResource Font.Regular}"
+                                   TextWrapping="Wrap" LineHeight="1.45" LineStackingStrategy="BlockLineHeight" />
+                        <TextBlock x:Name="QuipText"
+                                   FontFamily="{StaticResource Font.Regular}"
+                                   TextWrapping="Wrap" LineHeight="1.45" LineStackingStrategy="BlockLineHeight" />
+                    </Grid>
+
+                    <!-- 抽签结果：顶部左对齐 Thin 小字 + 固定中字号 Bold 居中“学号” + 大字号 Bold 居中“姓名” -->
+                    <StackPanel x:Name="PickPanel" Visibility="Collapsed" MinWidth="176">
+                        <TextBlock x:Name="PickHeader" Text="抽中的是"
+                                   FontFamily="{StaticResource Font.Thin}" FontSize="11.5"
+                                   HorizontalAlignment="Left" />
+                        <TextBlock x:Name="PickId"
+                                   FontFamily="{StaticResource Font.Bold}" FontWeight="Bold" FontSize="19"
+                                   HorizontalAlignment="Center" TextAlignment="Center" Margin="0,3,0,0" />
+                        <TextBlock x:Name="PickName"
+                                   FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                                   HorizontalAlignment="Center" TextAlignment="Center" Margin="0,1,0,0" />
+                    </StackPanel>
+
+                    <!-- 计时显示：小标签 + 大字号时间 -->
+                    <StackPanel x:Name="TimerPanel" Visibility="Collapsed" MinWidth="176">
+                        <TextBlock x:Name="TimerLabel" Text="倒计时"
+                                   FontFamily="{StaticResource Font.Thin}" FontSize="12.5"
+                                   HorizontalAlignment="Center" TextAlignment="Center" />
+                        <TextBlock x:Name="TimerTime" Text="00:00"
+                                   FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                                   HorizontalAlignment="Center" TextAlignment="Center" Margin="0,1,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
     </Grid>
 </Window>
+

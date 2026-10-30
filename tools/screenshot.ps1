@@ -20,7 +20,12 @@ $bmp = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
 $graphics = [System.Drawing.Graphics]::FromImage($bmp)
 $graphics.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
 
-$full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Out))
+# 支持绝对路径与相对路径
+if ([System.IO.Path]::IsPathRooted($Out)) {
+    $full = [System.IO.Path]::GetFullPath($Out)
+} else {
+    $full = [System.IO.Path]::GetFullPath((Join-Path (Get-Location) $Out))
+}
 $dir = [System.IO.Path]::GetDirectoryName($full)
 if ($dir -and -not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
 

@@ -254,9 +254,9 @@ public static class SpreadsheetReader
                 var id = (string?)rel.Attribute("Id");
                 var target = (string?)rel.Attribute("Target");
                 if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(target)) continue;
-                target = target.Replace('\\', '/');
+                target = target.Replace('\\', '/').TrimStart('/'); // 兼容绝对路径 Target="/xl/worksheets/sheet1.xml"
                 if (!target.StartsWith("xl/", StringComparison.OrdinalIgnoreCase))
-                    target = "xl/" + target.TrimStart('/');
+                    target = "xl/" + target;
                 relMap[id] = NormalizeZipPath(target);
             }
         }

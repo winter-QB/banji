@@ -1,4 +1,4 @@
-﻿# 《班机》架构契约（团队共享，改动须 Lead 批准）
+# 《班机》架构契约（团队共享，改动须 Lead 批准）
 
 > 产品名：**班机**（Banji）。Windows 课堂管理桌面宠物应用。
 > 依据：`C:\Users\qmy\Desktop\《班机》开发文档.docx`。
@@ -148,3 +148,24 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
 4. UI 线程：所有窗口/服务 UI 操作走 `Application.Current.Dispatcher`；定时器用 `DispatcherTimer`。
 5. 异常不得吞：统一 `Log.Error(ex)` 写 `%APPDATA%\Banji\logs\`。
 6. 完成后在共享任务板标记完成，并给 Lead 发一条自包含总结（文件、接口、测试结果、待集成点）。
+
+## 9. 补充约定（2026-10-30，用户反馈后）
+
+1. **宠物外观（用户明确要求）**：极简。身体是简单几何图形（橙色系），**眼睛就是两个纯黑实心小圆点**；不要腮红、不要鼻子、不要嘴巴、不要眼白/高光/瞳孔。`PetStyleSettings.ShowCheeks` 默认已关闭，实现时不要渲染腮红。眨眼动画可以有（小黑点短暂压扁），但整体保持简洁。
+2. **窗口构造契约**：所有窗口必须保留**无参构造函数**（AppServices 通过无参构造创建），并保留以下属性（缺一不可）：
+   - `TimerDialog.InitialKind`（`Banji.Core.Models.TimerKind`）
+   - `RosterImportWindow.InitialFilePath` / `TimetableImportWindow.InitialFilePath`（`string?`）
+   - `SettingsWindow.InitialSection`（`string?`）
+   可以新增属性，不能删除/改签名。窗口内统一通过 `AppServices.Current` 取服务。
+3. **单实例与构建**：构建/运行前先 `Get-Process Banji -ErrorAction SilentlyContinue | Stop-Process -Force`（exe 被占用会导致编译失败）。UI 验证统一用 `tools\qa.ps1`：`restart` → `cmd --cmd ...` → `screenshot -Out logs\xxx.png` → `stop`。多人同时验证会互相抢实例，遇到失败等 10 秒重试即可。
+4. **不要修改** `Core/Models/**`、`Core/Settings/**`、`Core/Abstractions/**`、`Core/Boot/AppServices.cs`、`App.xaml*`、`Resources/**`、`Banji.csproj`、`Banji.sln`。确实需要加接口/字段时，先 send_message 找 Lead。
+5. 组件内新增样式/资源字典放在自己的目录内（如 `Views/` 下的 `XxxStyles.xaml`），在窗口里 merge，不要动 `Resources/Theme.xaml`。
+6. 中文字体统一用 `{StaticResource Font.Thin/Light/Regular/Medium/Bold/Black}`；用 `Font.Bold` 时同时 `FontWeight="Bold"`。禁止硬编码 `FontFamily="Microsoft YaHei"` 等。
+7. 所有用户可见文案用简体中文；报错要用友好中文，不要直接抛英文异常给用户看。
+8. **时间/随机/文件 IO 逻辑必须可测**：服务构造函数允许注入 `Func<DateTime> now`；随机用 `RandomNumberGenerator`；测试里用假时间。
+9. 开发/QA 命令（首实例运行中时，第二个实例会把命令转发给首实例）：
+   - `--cmd seed-demo` 生成演示花名册/课表
+   - `--cmd pick` 触发抽签；`--cmd timer countdown 120` / `stopwatch` / `cancel`
+   - `--cmd notice start|end|timeout` 预览全屏提示
+   - `--cmd settings|dashboard|rosters|timetable|periods` 打开窗口
+   - `--cmd expand true|false`、`--cmd scale 1.5`、`--cmd exit`

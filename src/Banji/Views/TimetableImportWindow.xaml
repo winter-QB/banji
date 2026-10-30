@@ -1,9 +1,96 @@
-﻿<Window x:Class="Banji.Views.TimetableImportWindow"
+<Window x:Class="Banji.Views.TimetableImportWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TimetableImportWindow" Width="900" Height="640" WindowStartupLocation="CenterScreen">
-    <Grid>
-        <TextBlock Text="TimetableImportWindow（开发中）" HorizontalAlignment="Center" VerticalAlignment="Center"
-                   FontFamily="{StaticResource Font.Regular}" FontSize="16" Foreground="#6B7280"/>
+        Title="导入课表 — 班机"
+        Width="1080" Height="760"
+        MinWidth="820" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        Background="#F5F7FB"
+        FontFamily="{StaticResource Font.Regular}"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Ideal">
+
+    <Grid Margin="20,16,20,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 标题 -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="导入课表" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                       FontSize="24" Foreground="#1F2329" />
+            <TextBlock Text="支持 .xlsx / .xlsm / .csv：自动识别“星期为列”“星期为行”“每行一节”“时间表头”等常见布局，先预览确认再导入。"
+                       FontSize="13" Foreground="#6B7280" Margin="0,6,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- 文件选择 -->
+        <Grid Grid.Row="1" Margin="0,16,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="165" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <TextBox x:Name="FilePathBox" Grid.Column="0" Style="{StaticResource Input.TextBox}"
+                     Height="36" VerticalContentAlignment="Center" FontSize="13"
+                     KeyDown="OnFilePathKeyDown" />
+            <Button Grid.Column="1" Content="选择文件…" Style="{StaticResource Button.Form}" Padding="16,8"
+                    Margin="8,0,0,0" Click="OnBrowseClick" />
+            <TextBlock Grid.Column="2" Text="工作表" FontSize="13" Foreground="#6B7280"
+                       VerticalAlignment="Center" Margin="16,0,8,0" />
+            <ComboBox x:Name="SheetCombo" Grid.Column="3" Height="34" FontSize="13"
+                      VerticalContentAlignment="Center"
+                      SelectionChanged="OnSheetChanged" />
+            <Button Grid.Column="4" Content="重新解析" Style="{StaticResource Button.FormGhost}" Padding="14,8"
+                    Margin="8,0,0,0" Click="OnReloadClick" />
+        </Grid>
+
+        <!-- 识别说明 + warnings -->
+        <Border Grid.Row="2" Background="White" CornerRadius="10" BorderBrush="#E5E9F2"
+                BorderThickness="1" Padding="14,10" Margin="0,14,0,12">
+            <StackPanel>
+                <TextBlock x:Name="FormatText" FontFamily="{StaticResource Font.Medium}" FontSize="13"
+                           Foreground="#1F2329" TextWrapping="Wrap"
+                           Text="选择文件后，这里会显示自动识别的布局与节次信息。" />
+                <StackPanel x:Name="WarningsHost" Margin="0,6,0,0" />
+            </StackPanel>
+        </Border>
+
+        <!-- 预览表格 -->
+        <Border Grid.Row="3" Background="White" CornerRadius="12" BorderBrush="#E5E9F2"
+                BorderThickness="1" Padding="10">
+            <Grid>
+                <ScrollViewer x:Name="PreviewScroll" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Auto">
+                    <Grid x:Name="PreviewHost" />
+                </ScrollViewer>
+                <TextBlock x:Name="EmptyHint" FontSize="14" Foreground="#9AA3AF"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center"
+                           Text="尚未选择课表文件&#x0a;点击上方“选择文件…”或把 Excel / CSV 课表拖进来" />
+            </Grid>
+        </Border>
+
+        <!-- 底部 -->
+        <Grid Grid.Row="4" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="StatusText" Grid.Column="0" FontSize="13" Foreground="#6B7280"
+                       VerticalAlignment="Center" TextWrapping="Wrap" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button Content="取消" Style="{StaticResource Button.FormGhost}" Padding="20,8"
+                        FontFamily="{StaticResource Font.Medium}" Click="OnCancelClick" />
+                <Button x:Name="BtnConfirm" Content="确认导入" Style="{StaticResource Button.Form}" Padding="22,8"
+                        FontFamily="{StaticResource Font.Medium}" Margin="10,0,0,0" IsEnabled="False"
+                        Click="OnConfirmClick" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

@@ -1,9 +1,148 @@
-﻿<Window x:Class="Banji.Views.TimetableWindow"
+<Window x:Class="Banji.Views.TimetableWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="TimetableWindow" Width="1000" Height="700" WindowStartupLocation="CenterScreen">
-    <Grid>
-        <TextBlock Text="TimetableWindow（开发中）" HorizontalAlignment="Center" VerticalAlignment="Center"
-                   FontFamily="{StaticResource Font.Regular}" FontSize="16" Foreground="#6B7280"/>
+        Title="课表管理 — 班机"
+        Width="1200" Height="780"
+        MinWidth="900" MinHeight="560"
+        WindowStartupLocation="CenterScreen"
+        Background="#F5F7FB"
+        FontFamily="{StaticResource Font.Regular}"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Ideal">
+
+    <Grid Margin="20,16,20,14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- ===================== 顶部工具条 ===================== -->
+        <Grid Grid.Row="0" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="课表管理" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                           FontSize="24" Foreground="#1F2329" VerticalAlignment="Center" />
+                <Border x:Name="ViewChip" Background="#E8F0FF" CornerRadius="999" Padding="10,3"
+                        Margin="12,2,0,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="ViewHint" Text="本周视图" FontSize="12" Foreground="#317FFF" />
+                </Border>
+            </StackPanel>
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                <Button x:Name="BtnToday" Content="今天" Style="{StaticResource Button.FormGhost}"
+                        FontFamily="{StaticResource Font.Medium}" Padding="14,7" Margin="0,0,8,0"
+                        Click="OnTodayClick" />
+                <Button x:Name="BtnWeek" Content="本周" Style="{StaticResource Button.Form}"
+                        FontFamily="{StaticResource Font.Medium}" Padding="14,7" Margin="0,0,18,0"
+                        Click="OnWeekClick" />
+                <Button x:Name="BtnImport" Content="导入课表" Style="{StaticResource Button.FormGhost}"
+                        FontFamily="{StaticResource Font.Medium}" Padding="14,7" Margin="0,0,8,0"
+                        Click="OnImportClick" />
+                <Button x:Name="BtnPeriods" Content="课堂时段设置" Style="{StaticResource Button.FormGhost}"
+                        FontFamily="{StaticResource Font.Medium}" Padding="14,7" Margin="0,0,8,0"
+                        Click="OnPeriodsClick" />
+                <Button x:Name="BtnOverride" Content="临时换课" Style="{StaticResource Button.Form}"
+                        FontFamily="{StaticResource Font.Medium}" Padding="14,7"
+                        Click="OnOverrideClick" />
+            </StackPanel>
+        </Grid>
+
+        <!-- ===================== 主体：课表 + 临时换课面板 ===================== -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- 本周视图（代码动态生成网格） -->
+            <ScrollViewer x:Name="WeekScroll" Grid.Column="0"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                          Background="Transparent" Padding="0,0,4,4">
+                <Grid x:Name="WeekHost" />
+            </ScrollViewer>
+
+            <!-- 今天视图（代码动态生成列表） -->
+            <ScrollViewer x:Name="TodayScroll" Grid.Column="0" Visibility="Collapsed"
+                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                          Background="Transparent">
+                <StackPanel x:Name="TodayHost" />
+            </ScrollViewer>
+
+            <!-- 临时换课面板 -->
+            <Border x:Name="OverridePanel" Grid.Column="1" Width="376" Margin="14,0,0,0"
+                    Background="White" CornerRadius="12" BorderBrush="#E5E9F2" BorderThickness="1"
+                    Visibility="Collapsed">
+                <Grid Margin="14">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <DockPanel Grid.Row="0">
+                        <Button DockPanel.Dock="Right" Content="✕" Width="26" Height="26" Padding="0"
+                                Background="Transparent" BorderThickness="0" Foreground="#9AA3AF"
+                                Cursor="Hand" Click="OnCloseOverrideClick" ToolTip="收起面板" />
+                        <TextBlock Text="临时换课" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                                   FontSize="17" Foreground="#1F2329" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Grid.Row="1" Text="按日期替换某节课程 / 取消某节；临时换课优先于周课表。"
+                               FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,6,0,10" />
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="日期" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center" Margin="0,0,8,0" />
+                        <DatePicker x:Name="OverrideDate" Width="180" Height="30" VerticalContentAlignment="Center"
+                                    SelectedDateChanged="OnOverrideDateChanged" />
+                    </StackPanel>
+
+                    <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" MaxHeight="340">
+                        <StackPanel x:Name="OverridePeriodsHost" />
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="4" Margin="0,10,0,0">
+                        <TextBlock Text="备注" FontSize="13" Foreground="#6B7280" Margin="0,0,0,4" />
+                        <TextBox x:Name="OverrideNote" Style="{StaticResource Input.TextBox}" Height="32"
+                                 AcceptsReturn="False" />
+                        <TextBlock x:Name="OverrideStatus" FontSize="12" Foreground="#22A06B"
+                                   Margin="0,6,0,0" TextWrapping="Wrap" />
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button Content="保存覆盖" Style="{StaticResource Button.Form}" Padding="14,7"
+                                    Click="OnSaveOverrideClick" />
+                            <Button Content="删除覆盖" Style="{StaticResource Button.FormGhost}" Padding="14,7"
+                                    Margin="8,0,0,0" Click="OnDeleteOverrideClick" />
+                        </StackPanel>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="5" Margin="0,12,0,0">
+                        <TextBlock Text="已有的临时换课" FontSize="13" Foreground="#6B7280" Margin="0,0,0,6" />
+                        <ListBox x:Name="OverrideList" Height="110" BorderBrush="#E5E9F2" BorderThickness="1"
+                                 Background="#FBFCFE" SelectionChanged="OnOverrideListSelectionChanged" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ===================== 底部信息 ===================== -->
+        <Grid Grid.Row="2" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock x:Name="SourceInfo" Grid.Column="0" FontSize="12" Foreground="#6B7280"
+                       TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock x:Name="PhaseInfo" FontSize="12" Foreground="#317FFF" Margin="0,0,16,0" />
+                <TextBlock x:Name="OffsetInfo" FontSize="12" Foreground="#6B7280" />
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

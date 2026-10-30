@@ -186,6 +186,8 @@ public sealed class AppServices
         var window = factory();
         Register(window);
         window.Show();
+        // 打开辅助窗口时聚焦一次（用户点击体验更好；宠物窗不经过这里）
+        try { window.Activate(); } catch { /* ignore */ }
         return window;
     }
 

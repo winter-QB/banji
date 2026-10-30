@@ -81,12 +81,25 @@ public sealed class Roster
 
     private static string NaturalKey(string s)
     {
-        // 让 "2" 排在 "10" 前面：把数字段补零到 12 位
-        var sb = new System.Text.StringBuilder(s.Length + 8);
-        foreach (var ch in s)
+        // 让 "2" 排在 "10" 前面：把每一段连续数字整体补零到 16 位
+        var sb = new System.Text.StringBuilder(s.Length + 16);
+        var i = 0;
+        while (i < s.Length)
         {
-            if (char.IsDigit(ch)) sb.Append(ch.ToString().PadLeft(12, '0'));
-            else sb.Append(ch);
+            if (char.IsDigit(s[i]))
+            {
+                var j = i;
+                while (j < s.Length && char.IsDigit(s[j])) j++;
+                var digits = s.Substring(i, j - i).TrimStart('0');
+                if (digits.Length == 0) digits = "0";
+                sb.Append(digits.PadLeft(16, '0'));
+                i = j;
+            }
+            else
+            {
+                sb.Append(char.ToLowerInvariant(s[i]));
+                i++;
+            }
         }
         return sb.ToString();
     }

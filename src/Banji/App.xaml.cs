@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Threading;
 using Banji.Core.Abstractions;
 using Banji.Core.Boot;
@@ -154,9 +154,28 @@ public partial class App : Application
                 if (args.Length > 1 && double.TryParse(args[1], out var scale))
                     svc.Settings.Update(x => x.UiScale = scale);
                 break;
+            case "qa-transition-demo":
+                QaTransitionDemo(svc);
+                break;
+            case "qa-transition-restore":
+                QaTransitionRestore(svc);
+                break;
             case "seed-demo":
                 var report = DevSeed.Run();
                 Log.Info($"演示数据: {report}");
+                break;
+            case "font-check":
+                var fontReport = FontCheck.Run();
+                Log.Info(fontReport);
+                break;
+            case "menu":
+                svc.ShowMenuFlyout();
+                break;
+            case "roster-picker":
+                svc.ShowRosterPicker();
+                break;
+            case "close-windows":
+                svc.CloseAuxiliaryWindows();
                 break;
             case "exit":
             case "quit":
@@ -166,6 +185,45 @@ public partial class App : Application
                 Log.Warn($"未知命令: {string.Join(' ', args)}");
                 break;
         }
+    }
+
+    // =========================================================================
+    // QA：上下课过渡实测（临时把课表改成“当前时刻附近有课”，验证自动全屏提示/下课超时行）
+    // =========================================================================
+    private static WeekTimetable? _qaTimetableBackup;
+
+    private static void QaTransitionDemo(AppServices svc)
+    {
+        if (_qaTimetableBackup is null)
+            _qaTimetableBackup = svc.Timetable.Current.Clone();
+
+        var now = DateTime.Now;
+        var demo = new WeekTimetable
+        {
+            SourceFile = "QA",
+            UpdatedAt = now,
+            Periods = new List<ClassPeriod>
+            {
+                new() { Index = 1, Name = "当前课", Start = (now - TimeSpan.FromMinutes(5)).TimeOfDay, End = (now + TimeSpan.FromSeconds(8)).TimeOfDay },
+                new() { Index = 2, Name = "下一节", Start = (now + TimeSpan.FromSeconds(20)).TimeOfDay, End = (now + TimeSpan.FromMinutes(2)).TimeOfDay }
+            },
+            Breaks = new List<BreakSegment>()
+        };
+        demo.Days[now.DayOfWeek] = new List<TimetableEntry>
+        {
+            new() { PeriodIndex = 1, Course = "语文" },
+            new() { PeriodIndex = 2, Course = "数学" }
+        };
+        svc.Timetable.SetTimetable(demo);
+        Log.Info("QA：已切换到上下课过渡演示课表（8 秒后下课，20 秒后上课）");
+    }
+
+    private static void QaTransitionRestore(AppServices svc)
+    {
+        if (_qaTimetableBackup is null) { Log.Warn("QA：没有可恢复的课表备份"); return; }
+        svc.Timetable.SetTimetable(_qaTimetableBackup);
+        _qaTimetableBackup = null;
+        Log.Info("QA：已恢复原课表");
     }
 
     protected override void OnExit(ExitEventArgs e)

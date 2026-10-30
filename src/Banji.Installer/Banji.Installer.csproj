@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>BanjiInstaller</AssemblyName>
+    <RootNamespace>Banji.Installer</RootNamespace>
+    <Version>1.0.0</Version>
+    <FileVersion>1.0.0.0</FileVersion>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <Product>班机</Product>
+    <AssemblyTitle>班机安装程序</AssemblyTitle>
+    <Description>班机 — 课堂管理桌面宠物 安装程序</Description>
+    <Company>Banji</Company>
+    <Copyright>Copyright © 2026</Copyright>
+    <ApplicationIcon>Assets\banji.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+    <DebugType>embedded</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CA1416;CS8618</NoWarn>
+    <!-- 单文件 / 自包含参数由 build/build.ps1 在 publish 时传入 -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\banji.ico" />
+    <Resource Include="Assets\banji_256.png" />
+    <Resource Include="Assets\Fonts\*.ttf" />
+  </ItemGroup>
+
+  <!-- 安装负载（build/build.ps1 生成，内容为整个主程序 + 字体 + README + 许可证）。
+       缺失时仍可编译（开发用），但运行安装会给出中文错误提示。 -->
+  <ItemGroup Condition="Exists('Payload\payload.zip')">
+    <EmbeddedResource Include="Payload\payload.zip" LogicalName="Banji.Installer.payload.zip" />
+  </ItemGroup>
+
+</Project>

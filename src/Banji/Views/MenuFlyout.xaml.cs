@@ -1,11 +1,458 @@
-﻿using System.Windows;
+﻿using System.Runtime.InteropServices;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Interop;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
+using Banji.Core.Boot;
+using Banji.Core.Infrastructure;
+using Banji.Core.Models;
 
 namespace Banji.Views;
 
+/// <summary>
+/// Win11 风格圆角无边框置顶菜单：设置/仪表盘/花名册/课表/课堂时段/显示隐藏课表/
+/// 宠物大小（滑块+数值框）/按钮透明度/始终置顶/开机自启/杀死整个程序。
+/// 点击外部或按 ESC 关闭。
+/// </summary>
 public partial class MenuFlyout : Window
 {
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RunValueName = "Banji";
+
+    private const int VkLeftButton = 0x01;
+    private const int VkEscape = 0x1B;
+
+    private readonly TranslateTransform _popOffset = new(0, 0);
+    private readonly DispatcherTimer _outsideClickWatch;
+    // 默认 true：InitializeComponent 里 Slider.Value 被 Minimum 强制修正时会触发 ValueChanged，
+    // 不能在构造阶段把用户设置改掉（历史上把 UiScale 改成了 0.1）。
+    private bool _syncing = true;
+    private bool _anchorSet;
+    private bool _wasActivated;
+    private bool _leftWasDown;
+    private bool _placing;
+    private Point _anchor;
+
     public MenuFlyout()
     {
         InitializeComponent();
+        Opacity = 0;
+
+        var group = new TransformGroup();
+        group.Children.Add(new ScaleTransform(1, 1));
+        group.Children.Add(_popOffset);
+        Outer.RenderTransformOrigin = new Point(0.92, 0.2);
+        Outer.RenderTransform = group;
+
+        _outsideClickWatch = new DispatcherTimer(DispatcherPriority.Input)
+        {
+            Interval = TimeSpan.FromMilliseconds(90)
+        };
+        _outsideClickWatch.Tick += (_, _) => WatchOutsideClick();
+
+        PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape)
+            {
+                e.Handled = true;
+                Close();
+            }
+        };
+        Activated += (_, _) => _wasActivated = true;
+        Deactivated += (_, _) =>
+        {
+            if (_wasActivated && IsVisible) Close();
+        };
+        Loaded += (_, _) =>
+        {
+            SyncFromSettings();
+            if (_anchorSet) PlaceNear(_anchor);
+            AnimateIn();
+            _outsideClickWatch.Start();
+        };
+        Closed += (_, _) => _outsideClickWatch.Stop();
+        // 内容最终高度可能晚于第一次 PlaceNear 才确定，尺寸变化时重新贴边，确保不越出工作区。
+        SizeChanged += (_, _) =>
+        {
+            if (_anchorSet && IsVisible && !_placing) PlaceNear(_anchor);
+        };
+    }
+
+    /// <summary>贴着触发点（屏幕 DIP 坐标）弹出，自动避让屏幕边缘。</summary>
+    public void PlaceNear(Point anchor)
+    {
+        _anchor = anchor;
+        _anchorSet = true;
+        if (_placing) return;
+        _placing = true;
+        try
+        {
+            UpdateLayout();
+            var work = SystemParameters.WorkArea;
+            var width = ActualWidth > 0 ? ActualWidth : 300;
+            var height = ActualHeight > 0 ? ActualHeight : 440;
+            const double edge = 8;
+
+            var left = anchor.X - width - 14;      // 优先放在触发点左侧
+            var top = anchor.Y - height * 0.28;
+            if (left < work.Left + edge) left = anchor.X + 14; // 左边放不下就放右侧
+            left = Math.Clamp(left, work.Left + edge, work.Right - edge - width);
+            top = Math.Clamp(top, work.Top + edge, Math.Max(work.Top + edge, work.Bottom - edge - height));
+
+            Left = Math.Round(left);
+            Top = Math.Round(top);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"定位菜单失败：{ex.Message}");
+        }
+    }
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        try
+        {
+            // 不进 Alt-Tab；菜单需要能拿焦点以支持 ESC。
+            NativeMethods.SetToolWindow(new WindowInteropHelper(this).Handle, true);
+            NativeMethods.ReassertTopmost(new WindowInteropHelper(this).Handle);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("设置菜单窗口扩展样式失败", ex);
+        }
+    }
+
+    /// <summary>
+    /// 点击菜单外部 / 按 ESC 关闭。宠物窗是不抢焦点的窗口，点击它不会让本窗口 Deactivated，
+    /// 所以额外轮询一次“鼠标左键按下时是否在菜单外”，保证任何情况下都能关掉。
+    /// </summary>
+    private void WatchOutsideClick()
+    {
+        if (!IsVisible) return;
+        try
+        {
+            if ((GetAsyncKeyState(VkEscape) & 0x8000) != 0)
+            {
+                Close();
+                return;
+            }
+            var down = (GetAsyncKeyState(VkLeftButton) & 0x8000) != 0;
+            if (down && !_leftWasDown && !IsCursorInsideWindow())
+            {
+                Close();
+                return;
+            }
+            _leftWasDown = down;
+        }
+        catch
+        {
+            // 轮询失败不影响菜单使用
+        }
+    }
+
+    private bool IsCursorInsideWindow()
+    {
+        try
+        {
+            if (!NativeMethods.GetCursorPos(out var point)) return true;
+            if (ActualWidth <= 0 || ActualHeight <= 0) return true;
+            var topLeft = PointToScreen(new Point(0, 0));
+            var bottomRight = PointToScreen(new Point(ActualWidth, ActualHeight));
+            return point.X >= topLeft.X && point.X <= bottomRight.X &&
+                   point.Y >= topLeft.Y && point.Y <= bottomRight.Y;
+        }
+        catch
+        {
+            return true;
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    private void AnimateIn()
+    {
+        try
+        {
+            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+            BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(130)) { EasingFunction = ease });
+            _popOffset.BeginAnimation(TranslateTransform.YProperty,
+                new DoubleAnimation(0, TimeSpan.FromMilliseconds(150)) { From = 8, EasingFunction = ease });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("菜单弹出动画失败", ex);
+        }
+    }
+
+    // =========================================================================
+    // 设置同步
+    // =========================================================================
+
+    private void SyncFromSettings()
+    {
+        try
+        {
+            var settings = AppServices.Current.Settings.Current;
+            _syncing = true;
+            PetScaleSlider.Value = Math.Clamp(settings.UiScale, PetScaleSlider.Minimum, PetScaleSlider.Maximum);
+            PetScaleBox.Text = settings.UiScale.ToString("0.##");
+            PetScaleValue.Text = settings.UiScale.ToString("0.00") + "×";
+            ButtonOpacitySlider.Value = settings.Buttons.IdleOpacityPercent;
+            ButtonOpacityValue.Text = $"{settings.Buttons.IdleOpacityPercent}%";
+            ToggleTimetableText.Text = settings.ShowTimetablePanel ? "隐藏课表" : "显示课表";
+            SetSwitch(AlwaysOnTopSwitch, AlwaysOnTopKnobOffset, settings.AlwaysOnTop, animate: false);
+            SetSwitch(AutoStartSwitch, AutoStartKnobOffset, settings.AutoStartWithWindows, animate: false);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("同步菜单设置失败", ex);
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    // =========================================================================
+    // 宠物大小
+    // =========================================================================
+
+    private void OnPetScaleSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncing) return;
+        ApplyScale(e.NewValue, updateBox: true);
+    }
+
+    private void ApplyScale(double value, bool updateBox)
+    {
+        try
+        {
+            value = Math.Clamp(Math.Round(value, 3), 0.05, 20.0);
+            AppServices.Current.Settings.Update(s => s.UiScale = value);
+
+            _syncing = true;
+            if (PetScaleValue is not null) PetScaleValue.Text = value.ToString("0.00") + "×";
+            if (updateBox && PetScaleBox is not null) PetScaleBox.Text = value.ToString("0.##");
+            if (PetScaleSlider is not null)
+            {
+                var sliderValue = Math.Clamp(value, PetScaleSlider.Minimum, PetScaleSlider.Maximum);
+                if (Math.Abs(PetScaleSlider.Value - sliderValue) > 1e-6) PetScaleSlider.Value = sliderValue;
+            }
+            _syncing = false;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("调整宠物大小失败", ex);
+        }
+    }
+
+    private void OnPetScaleBoxKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;
+        CommitPetScaleBox();
+        Keyboard.ClearFocus();
+    }
+
+    private void OnPetScaleBoxLostFocus(object sender, RoutedEventArgs e) => CommitPetScaleBox();
+
+    private void CommitPetScaleBox()
+    {
+        if (_syncing) return;
+        var text = PetScaleBox.Text.Trim().Replace('×', ' ').Trim();
+        var ok = double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
+                 || double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value);
+        if (!ok)
+        {
+            SyncPetScaleDisplay();
+            return;
+        }
+        ApplyScale(value, updateBox: true);
+    }
+
+    private void SyncPetScaleDisplay()
+    {
+        try
+        {
+            var settings = AppServices.Current.Settings.Current;
+            _syncing = true;
+            PetScaleSlider.Value = Math.Clamp(settings.UiScale, PetScaleSlider.Minimum, PetScaleSlider.Maximum);
+            PetScaleBox.Text = settings.UiScale.ToString("0.##");
+            PetScaleValue.Text = settings.UiScale.ToString("0.00") + "×";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("恢复宠物大小显示失败", ex);
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
+    // =========================================================================
+    // 按钮透明度
+    // =========================================================================
+
+    private void OnButtonOpacityChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncing) return;
+        try
+        {
+            var percent = (int)Math.Round(e.NewValue);
+            percent = Math.Clamp(percent, 0, 100);
+            AppServices.Current.Settings.Update(s => s.Buttons.IdleOpacityPercent = percent);
+            _syncing = true;
+            ButtonOpacityValue.Text = $"{percent}%";
+            _syncing = false;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("调整按钮透明度失败", ex);
+        }
+    }
+
+    // =========================================================================
+    // 开关与菜单项
+    // =========================================================================
+
+    private void OnAlwaysOnTopClick(object sender, RoutedEventArgs e) => ToggleSwitch(
+        AlwaysOnTopSwitch, AlwaysOnTopKnobOffset,
+        AppServices.Current.Settings.Current.AlwaysOnTop,
+        value => AppServices.Current.Settings.Update(s => s.AlwaysOnTop = value));
+
+    private void OnAutoStartClick(object sender, RoutedEventArgs e) => ToggleSwitch(
+        AutoStartSwitch, AutoStartKnobOffset,
+        AppServices.Current.Settings.Current.AutoStartWithWindows,
+        value =>
+        {
+            AppServices.Current.Settings.Update(s => s.AutoStartWithWindows = value);
+            ApplyAutoStart(value);
+        });
+
+    private void ToggleSwitch(Border track, TranslateTransform knob, bool current, Action<bool> apply)
+    {
+        var next = !current;
+        try
+        {
+            apply(next);
+            SetSwitch(track, knob, next, animate: true);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("切换菜单开关失败", ex);
+            SetSwitch(track, knob, current, animate: false);
+        }
+    }
+
+    private void SetSwitch(Border track, TranslateTransform knob, bool on, bool animate)
+    {
+        var targetColor = on ? Color.FromRgb(0x31, 0x7F, 0xFF) : Color.FromRgb(0xD7, 0xDE, 0xEA);
+        var knobTarget = on ? 15.0 : 0.0;
+        try
+        {
+            if (!animate)
+            {
+                var brush = new SolidColorBrush(targetColor);
+                brush.Freeze();
+                track.Background = brush;
+                knob.BeginAnimation(TranslateTransform.XProperty, null);
+                knob.X = knobTarget;
+                return;
+            }
+
+            var animatedBrush = new SolidColorBrush(((SolidColorBrush)track.Background).Color);
+            track.Background = animatedBrush;
+            animatedBrush.BeginAnimation(SolidColorBrush.ColorProperty,
+                new ColorAnimation(targetColor, TimeSpan.FromMilliseconds(130)));
+            knob.BeginAnimation(TranslateTransform.XProperty,
+                new DoubleAnimation(knobTarget, TimeSpan.FromMilliseconds(150))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("刷新菜单开关样式失败", ex);
+        }
+    }
+
+    private void OnToggleTimetableClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var settings = AppServices.Current.Settings.Current;
+            var show = !settings.ShowTimetablePanel;
+            AppServices.Current.Settings.Update(s => s.ShowTimetablePanel = show);
+            ToggleTimetableText.Text = show ? "隐藏课表" : "显示课表";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("切换课表显示失败", ex);
+        }
+    }
+
+    private void OnSettingsClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowSettings());
+
+    private void OnDashboardClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowDashboard());
+
+    private void OnRosterClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowRosterManager());
+
+    private void OnTimetableClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowTimetableEditor());
+
+    private void OnPeriodsClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowPeriodSettings());
+
+    private void OnExitClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.Shutdown());
+
+    private void CloseThen(Action action)
+    {
+        try { Close(); } catch { /* ignore */ }
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("执行菜单命令失败", ex);
+        }
+    }
+
+    // =========================================================================
+    // 开机自启（HKCU Run，无需管理员）
+    // =========================================================================
+
+    private static void ApplyAutoStart(bool enable)
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(RunKeyPath);
+            if (key is null) return;
+            if (enable)
+            {
+                var exe = Environment.ProcessPath;
+                if (string.IsNullOrWhiteSpace(exe)) return;
+                key.SetValue(RunValueName, $"\"{exe}\"");
+            }
+            else
+            {
+                key.DeleteValue(RunValueName, throwOnMissingValue: false);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("设置开机自启失败", ex);
+        }
     }
 }
+
+
+
+
+
+
+
