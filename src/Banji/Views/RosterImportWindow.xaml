@@ -1,0 +1,9 @@
+﻿<Window x:Class="Banji.Views.RosterImportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RosterImportWindow" Width="820" Height="600" WindowStartupLocation="CenterScreen">
+    <Grid>
+        <TextBlock Text="RosterImportWindow（开发中）" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontFamily="{StaticResource Font.Regular}" FontSize="16" Foreground="#6B7280"/>
+    </Grid>
+</Window>

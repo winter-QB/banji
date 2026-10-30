@@ -1,0 +1,15 @@
+﻿# 构建产物
+bin/
+obj/
+**/bin/
+**/obj/
+.dotnet/
+.tools/
+logs/
+*.user
+*.tmp
+*.bak
+dist/
+# 大文件（字体保留源码依赖，但仓库里避免重复大文件）
+src/Banji.Installer/Payload/
+__pycache__/

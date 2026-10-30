@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Banji</AssemblyName>
+    <RootNamespace>Banji</RootNamespace>
+    <Product>班机</Product>
+    <AssemblyTitle>班机</AssemblyTitle>
+    <Description>班机 — 课堂管理桌面宠物</Description>
+    <Company>Banji</Company>
+    <Copyright>Copyright © 2026</Copyright>
+    <Version>1.0.0</Version>
+    <InformationalVersion>1.0.0</InformationalVersion>
+    <ApplicationIcon>Assets\banji.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>
+    <DebugType>embedded</DebugType>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CA1416;CS8618</NoWarn>
+    <!-- 单文件/裁剪在 publish 脚本中覆盖 -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\Fonts\*.ttf" />
+    <Resource Include="Assets\Images\*.*" />
+    <Content Include="Assets\Audio\*.wav" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\Templates\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Assets\Docs\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
