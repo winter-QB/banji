@@ -13,3 +13,15 @@ dist/
 # 大文件（字体保留源码依赖，但仓库里避免重复大文件）
 src/Banji.Installer/Payload/
 __pycache__/
+
+# 打包中间产物（成果在 dist/）
+build/publish/
+build/payload/
+build/payload.zip
+build/installer/
+build/portable/
+build/构建报告.txt
+build/*.log
+build/*.zip
+# 安装器自测临时目录
+.tmp-install/

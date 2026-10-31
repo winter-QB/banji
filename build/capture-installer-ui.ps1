@@ -1,4 +1,4 @@
-#requires -version 5.1
+﻿#requires -version 5.1
 <#
 .SYNOPSIS
     自动走一遍安装器界面并截图（README 用），可选完整安装流程。
@@ -142,7 +142,7 @@ Start-Sleep -Milliseconds 400
 
 $process = Start-Process -FilePath $installerFull -PassThru
 $window = Get-MainWindow $process.Id
-Start-Sleep -Milliseconds 1200
+Start-Sleep -Milliseconds 3000
 
 Save-WindowScreenshot $process (Join-Path $outFull "installer-welcome.png")
 
@@ -177,3 +177,4 @@ if ($AllPages) {
     if ($KeepRunning) { Write-Host "安装器保持运行（PID $($process.Id)）" }
     else { $process | Stop-Process -Force }
 }
+

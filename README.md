@@ -30,16 +30,35 @@
 
 ![班机安装程序欢迎页](assets/screenshots/installer-welcome.png)
 
-<!--
-应用截图占位：等主程序功能集成完成后替换为最终成品截图（Lead 提供）。
-![宠物与课表面板](assets/screenshots/app-pet.png)
-![抽签结果气泡](assets/screenshots/app-pick.png)
-![倒计时与超时提醒](assets/screenshots/app-timer.png)
-![设置窗口](assets/screenshots/app-settings.png)
-![全屏上课提示](assets/screenshots/app-notice.png)
--->
+### 桌面宠物与课堂信息
 
-> 应用本体界面截图（宠物、课表面板、抽签气泡、设置窗口、全屏上下课提示）正在等主程序集成完成后补充到 `assets/screenshots/`。
+| | |
+|:---:|:---:|
+| ![宠物、课表与倒计时](assets/screenshots/app-pet.png) | ![抽签结果气泡](assets/screenshots/app-pick.png) |
+| 宠物 + 当天课表 + 常驻倒计时信息 | 抽签结果气泡（学号 + 姓名，10 秒后消失） |
+| ![菜单面板](assets/screenshots/app-menu.png) | ![计时与功能按钮](assets/screenshots/app-timer.png) |
+| 菜单：设置 / 仪表盘 / 大小 / 置顶 / 退出…… | 功能区按钮与计时气泡 |
+
+### 窗口
+
+| | |
+|:---:|:---:|
+| ![设置窗口](assets/screenshots/app-settings.png) | ![仪表盘](assets/screenshots/app-dashboard.png) |
+| 设置：全部选项即时生效，可恢复默认 | 仪表盘：课程 / 抽签统计 / 快捷操作 |
+
+| | |
+|:---:|:---:|
+| ![花名册管理](assets/screenshots/app-rosters.png) | ![课表管理](assets/screenshots/app-timetable.png) |
+| 花名册管理：多份名单 / 排序 / 导入 | 课表管理：周视图网格 / 导入 / 临时换课 |
+
+### 全屏提醒
+
+| | | |
+|:---:|:---:|:---:|
+| ![上课全屏提示](assets/screenshots/app-notice-start.png) | ![下课提示](assets/screenshots/app-notice-end.png) | ![计时器超时](assets/screenshots/app-timer-timeout.png) |
+| 上课：醒目全屏强提醒 | 下课：纯文字弱提醒 | 计时器超时：高斯模糊 + 居中提醒 |
+
+> 以上截图来自最终验收（测试机桌面背景中夹杂的其它软件窗口属于截图环境，不影响程序本身）。
 
 ---
 

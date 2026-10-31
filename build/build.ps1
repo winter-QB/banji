@@ -185,7 +185,8 @@ if ($SkipTests) {
     Write-Warn "按参数要求跳过测试；正式交付前请不要跳过。"
 } else {
     Write-Section "运行单元测试（退出码非 0 立即中止）"
-    & $Dotnet run --project $TestsProject -c Debug -nologo
+    # 注意：不能给 `dotnet run` 加 -nologo 之类的未知参数，它会被转发给测试程序当成过滤词
+    & $Dotnet run --project $TestsProject -c Debug
     $testExit = $LASTEXITCODE
     if ($testExit -ne 0) {
         Fail "测试未通过（退出码 $testExit）" "请先修复测试失败，或先用 -SkipTests 出包做开发期验证。"
@@ -258,6 +259,14 @@ if (Test-Path -LiteralPath $templatesSource) {
     Copy-Item -Path (Join-Path $templatesSource "*") -Destination $templatesDest -Recurse -Force
     Write-Info "样例模板已同时复制到安装目录 Assets\Templates"
 }
+# README 里引用的界面截图也放一份，安装目录里的 README 图片才能显示
+$screenshotsSource = Join-Path $script:Root "assets\screenshots"
+if (Test-Path -LiteralPath $screenshotsSource) {
+    $screenshotsDest = Join-Path $PayloadApp "assets\screenshots"
+    New-Item -ItemType Directory -Path $screenshotsDest -Force | Out-Null
+    Copy-Item -Path (Join-Path $screenshotsSource "*.png") -Destination $screenshotsDest -Force
+    Write-Info "README 截图已同时复制到安装目录 assets\screenshots"
+}
 Write-Ok "负载目录：app\（程序）、fonts\（6 个字体）、README.md、HarmonyOS_Sans_LICENSE.txt"
 
 # =============================================================================
@@ -327,6 +336,11 @@ if ($SkipPortable) {
         $templatesDest = Join-Path $PortableDir "Assets\Templates"
         New-Item -ItemType Directory -Path $templatesDest -Force | Out-Null
         Copy-Item -Path (Join-Path $templatesSource "*") -Destination $templatesDest -Recurse -Force
+    }
+    if (Test-Path -LiteralPath $screenshotsSource) {
+        $screenshotsDest = Join-Path $PortableDir "assets\screenshots"
+        New-Item -ItemType Directory -Path $screenshotsDest -Force | Out-Null
+        Copy-Item -Path (Join-Path $screenshotsSource "*.png") -Destination $screenshotsDest -Force
     }
     if (Test-Path -LiteralPath $DistPortable) { Remove-Item -LiteralPath $DistPortable -Force }
     [System.IO.Compression.ZipFile]::CreateFromDirectory(

@@ -97,12 +97,17 @@ def main() -> None:
         if path.exists():
             scale_copy(path, f"app-{name}.png", width)
 
+    # 课表管理窗口（如果 acceptance 截图里没抓到窗口，用队友 QA 图）
+    if (LOGS / "acceptance" / "09b-periods.png").exists():
+        window_crop(LOGS / "schedule-period-settings.png", "app-periods.png")
+
     # 宠物相关：屏幕右侧区域（宠物、课表面板、信息框、气泡、菜单都在右侧）
     pet_sources = {
-        "pet": (LOGS / "acceptance" / "01-pet-default.png", (0.80, 0.33, 1.0, 0.98)),
+        "pet": (LOGS / "acceptance" / "01-pet-default.png", (0.845, 0.34, 1.0, 0.97)),
         "pick": (LOGS / "acceptance" / "03-pet-pick-bubble.png", (0.72, 0.40, 1.0, 0.98)),
-        "menu": (LOGS / "pet-14-menu.png", (0.62, 0.22, 1.0, 0.98)),
-        "timer": (LOGS / "pet-13-timer-functions.png", (0.62, 0.30, 1.0, 0.98)),
+        "timer": (LOGS / "acceptance" / "04-pet-timer.png", (0.62, 0.30, 1.0, 0.98)),
+        "menu": (LOGS / "acceptance" / "05-pet-menu.png", (0.62, 0.22, 1.0, 0.98)),
+        "overrun": (LOGS / "capture-overrun2.png", (0.80, 0.30, 1.0, 0.98)),
     }
     for name, (path, box) in pet_sources.items():
         if path.exists():
