@@ -1,20 +1,23 @@
-param(
-    [ValidateSet("start", "cmd", "stop", "restart", "screenshot", "status")]
-    [string]$Action = "start",
-    [string]$Out = "logs/screen.png",
+﻿param(
     [Parameter(ValueFromRemainingArguments = $true)]
-    [string[]]$CommandArgs
+    [string[]]$CliArgs
 )
 
-# 班机 QA 工具（Lead 维护）：
-#   restart      = 杀掉所有实例 → 启动一个干净实例 → 验证 IPC 就绪（推荐每次验证前用）
-#   cmd ...      = 向当前实例转发命令（自动清理多实例/重试一次）
-#   stop         = 优雅退出所有实例，必要时强杀
-#   screenshot   = 截主屏到 -Out
-#   status       = 查看实例状态
+# 班机 QA 工具（Lead 维护）。为避免 PowerShell 位置参数/前缀匹配吞参数，只用一个剩余参数数组：
+#   qa.ps1 restart
+#   qa.ps1 cmd --cmd pick
+#   qa.ps1 cmd --cmd notice start
+#   qa.ps1 screenshot logs/xxx.png
+#   qa.ps1 stop
+#   qa.ps1 status
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $exe = Join-Path $root "src\Banji\bin\Debug\net8.0-windows\Banji.exe"
+
+$all = @($CliArgs)
+$Action = if ($all.Count -gt 0) { $all[0].ToLowerInvariant() } else { "start" }
+$Rest = if ($all.Count -gt 1) { @($all[1..($all.Count - 1)]) } else { @() }
+$Rest = @($Rest)  # 防止单元素数组被 if 展开成标量（导致 $Rest[0] 取到字符串首字符）
 
 function Get-BanjiProcesses {
     @(Get-Process Banji -ErrorAction SilentlyContinue | Sort-Object StartTime)
@@ -48,17 +51,24 @@ function Test-IpcReady {
 
 function Start-BanjiFresh {
     Start-Process -FilePath $exe -WindowStyle Normal | Out-Null
-    $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($sw.ElapsedMilliseconds -lt 15000) {
+    # 等应用真正完成启动再探测，避免探测进程抢在首实例创建互斥量之前“变成”首实例
+    Start-Sleep -Milliseconds 2600
+    for ($i = 0; $i -lt 6; $i++) {
         $procs = Get-BanjiProcesses
-        if ($procs.Count -ge 1) {
-            if ($procs.Count -eq 1 -and (Test-IpcReady)) {
-                return $true
-            }
-            # 出现多实例：保留最早的，结束其余（不应发生，但自愈）
-            $procs | Select-Object -Skip 1 | Stop-Process -Force -ErrorAction SilentlyContinue
+        if ($procs.Count -eq 1) {
+            $probe = Start-Process -FilePath $exe -ArgumentList @("--cmd", "show") -PassThru -WindowStyle Hidden
+            $exited = $probe.WaitForExit(4000)
+            if (-not $exited) { try { $probe.Kill() } catch {} }
+            if ($exited -and $probe.ExitCode -eq 0) { return $true }
         }
-        Start-Sleep -Milliseconds 500
+        elseif ($procs.Count -gt 1) {
+            Start-Sleep -Milliseconds 800
+            $procs = Get-BanjiProcesses
+            if ($procs.Count -gt 1) {
+                $procs | Select-Object -Skip 1 | Stop-Process -Force -ErrorAction SilentlyContinue
+            }
+        }
+        Start-Sleep -Milliseconds 700
     }
     return $false
 }
@@ -82,7 +92,7 @@ switch ($Action) {
         else { Write-Warning "班机重启失败"; exit 1 }
     }
     "cmd" {
-        if (-not $CommandArgs -or $CommandArgs.Count -eq 0) { throw "cmd 需要参数，例如: qa.ps1 cmd --cmd pick" }
+        if ($Rest.Count -eq 0) { throw "cmd 需要参数，例如: qa.ps1 cmd --cmd pick" }
         $procs = Get-BanjiProcesses
         if ($procs.Count -eq 0) { throw "当前没有运行中的班机实例，请先 qa.ps1 restart" }
         if ($procs.Count -gt 1) {
@@ -90,13 +100,13 @@ switch ($Action) {
             $procs | Select-Object -Skip 1 | Stop-Process -Force -ErrorAction SilentlyContinue
             Start-Sleep -Milliseconds 400
         }
-        $ok = Send-BanjiCommand -Arguments $CommandArgs
+        $ok = Send-BanjiCommand -Arguments $Rest
         if (-not $ok) {
             Start-Sleep -Milliseconds 500
-            $ok = Send-BanjiCommand -Arguments $CommandArgs
+            $ok = Send-BanjiCommand -Arguments $Rest
         }
-        if ($ok) { Write-Host "已发送: $($CommandArgs -join ' ')" }
-        else { Write-Warning "命令执行失败: $($CommandArgs -join ' ')"; exit 1 }
+        if ($ok) { Write-Host "已发送: $($Rest -join ' ')" }
+        else { Write-Warning "命令执行失败: $($Rest -join ' ')"; exit 1 }
     }
     "stop" {
         if ((Get-BanjiProcesses).Count -gt 0) {
@@ -115,7 +125,8 @@ switch ($Action) {
         Write-Host "班机已停止"
     }
     "screenshot" {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "screenshot.ps1") -Out $Out
+        $out = if ($Rest.Count -gt 0) { $Rest[0] } else { "logs/screen.png" }
+        & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "screenshot.ps1") -Out $out
     }
     "status" {
         $procs = Get-BanjiProcesses
@@ -125,4 +136,5 @@ switch ($Action) {
             Write-Host "实例数: $($procs.Count)"
         }
     }
+    default { throw "未知动作: $Action（支持 start/cmd/stop/restart/screenshot/status）" }
 }

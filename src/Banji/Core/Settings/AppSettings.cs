@@ -210,7 +210,8 @@ public sealed class BubbleStyleSettings
 public sealed class NoticeStyleSettings
 {
     public string ClassStartTextColor { get; set; } = "#FFFFFF";
-    public string ClassEndTextColor { get; set; } = "#1F2329";
+    /// <summary>下课纯文字颜色：默认白色，配合自动对比描边，在任何桌面/PPT 背景上都能看清。</summary>
+    public string ClassEndTextColor { get; set; } = "#FFFFFF";
     public int ClassEndTextOpacityPercent { get; set; } = 92;
     public double ClassStartFontSize { get; set; } = 130;
     public double ClassEndFontSize { get; set; } = 110;

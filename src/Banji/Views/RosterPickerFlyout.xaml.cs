@@ -13,6 +13,7 @@ namespace Banji.Views;
 public partial class RosterPickerFlyout : Window
 {
     private bool _suppressDeactivate = true;
+    private bool _closing;
 
     public RosterPickerFlyout()
     {
@@ -32,8 +33,17 @@ public partial class RosterPickerFlyout : Window
 
     private void OnDeactivated(object? sender, EventArgs e)
     {
-        if (_suppressDeactivate) return;
-        Close();
+        if (_suppressDeactivate || _closing) return;
+        CloseSafely();
+    }
+
+    /// <summary>防止 Deactivated → Close → 再次 Deactivated → Close 递归触发 "窗口关闭期间" 异常。</summary>
+    private void CloseSafely()
+    {
+        if (_closing) return;
+        _closing = true;
+        try { Close(); }
+        catch (Exception ex) { Log.Error("关闭花名册选择窗失败", ex); }
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -41,7 +51,7 @@ public partial class RosterPickerFlyout : Window
         if (e.Key == Key.Escape)
         {
             e.Handled = true;
-            Close();
+            CloseSafely();
         }
     }
 

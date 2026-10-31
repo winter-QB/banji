@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$SkipBuild,
     [switch]$SkipTests,
     [int]$ScreenshotDelayMs = 900
@@ -28,7 +28,7 @@ function Send-Banji {
 function Shot {
     param([string]$Name)
     Start-Sleep -Milliseconds $ScreenshotDelayMs
-    Qa -Arguments @("screenshot", "-Out", (Join-Path $outDir $Name))
+    Qa -Arguments @("screenshot", (Join-Path $outDir $Name))
 }
 
 $report = [System.Collections.Generic.List[string]]::new()

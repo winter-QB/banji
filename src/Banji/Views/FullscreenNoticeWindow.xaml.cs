@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -59,10 +59,17 @@ public partial class FullscreenNoticeWindow : Window
         StartTitle.Foreground = textBrush;
         StartCourse.Foreground = textBrush;
 
-        if (target is not null)
+        if (target is not null && target.HasCourse)
         {
             StartCourse.Text = target.CourseDisplay;
             StartCourse.Visibility = Visibility.Visible;
+            StartPeriod.Text = $"{target.PeriodName}   {target.TimeText}";
+            StartPeriod.Visibility = Visibility.Visible;
+        }
+        else if (target is not null)
+        {
+            // 课程名为空时不要显示“未设置”，只显示节次/时间
+            StartCourse.Visibility = Visibility.Collapsed;
             StartPeriod.Text = $"{target.PeriodName}   {target.TimeText}";
             StartPeriod.Visibility = Visibility.Visible;
         }
@@ -118,17 +125,20 @@ public partial class FullscreenNoticeWindow : Window
         ColorLayer.Opacity = 0;
 
         EndTitle.FontSize = Clamp(notice.ClassEndFontSize, 40, 300);
-        var textColor = ColorFromHex(notice.ClassEndTextColor, Color.FromRgb(0x1F, 0x23, 0x29));
+        var textColor = ColorFromHex(notice.ClassEndTextColor, Colors.White);
         var opacity = Math.Clamp(notice.ClassEndTextOpacityPercent, 0, 100) / 100.0;
         var brush = new SolidColorBrush(textColor) { Opacity = opacity };
 
-        // 纯文字但加一圈柔和白色描边（深色 PPT / 桌面背景下也能看清，不构成“背景”）
+        // 下课提示是“纯文字”，必须保证在任何 PPT / 桌面背景上都看得清：
+        // 浅色文字配深色描边光晕，深色文字配白色描边光晕（自动对比）。
+        var luminance = (0.299 * textColor.R + 0.587 * textColor.G + 0.114 * textColor.B) / 255.0;
+        var glowColor = luminance > 0.55 ? Colors.Black : Colors.White;
         var glow = new DropShadowEffect
         {
-            Color = Colors.White,
+            Color = glowColor,
             ShadowDepth = 0,
-            BlurRadius = 22,
-            Opacity = 0.65
+            BlurRadius = 26,
+            Opacity = 0.85
         };
 
         EndTitle.Foreground = brush;
