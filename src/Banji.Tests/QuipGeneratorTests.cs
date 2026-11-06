@@ -1,4 +1,4 @@
-using Banji.Core.Quips;
+﻿using Banji.Core.Quips;
 
 namespace Banji.Tests;
 
@@ -123,4 +123,114 @@ public static class QuipGeneratorTests
             previous = text;
         }
     }
+
+    // =========================================================================
+    // 第三轮：学科/活动课语义修复（黑名单 + 每科目 3000 条）
+    // =========================================================================
+
+    [BanjiTest]
+    public static void 语义黑名单会被拒绝()
+    {
+        var bad = new[]
+        {
+            "体育这道题，我盯着看了十分钟还是没思路。",
+            "今天也要和自习好好相处。",
+            "美术的公式抄三遍。",
+            "音乐的题不会做。",
+            "和体育好好相处。",
+            "信息技术公式背不下来。",
+            "自习的题真难。"
+        };
+        foreach (var text in bad)
+        {
+            Assert.False(LocalQuipGenerator.IsValidQuip(text), $"应当被黑名单拒绝：{text}");
+        }
+
+        var good = new[]
+        {
+            "这节体育课，终于可以起来活动一下了。",
+            "这道数学题，我盯着看了十分钟还是没思路。",
+            "今天也要和语文好好相处。",
+            "自习时间，班里难得安静又热闹。",
+            "体育课上老师让我们跑了两圈。"
+        };
+        foreach (var text in good)
+        {
+            Assert.True(LocalQuipGenerator.IsValidQuip(text), $"不应当被误杀：{text}");
+        }
+    }
+
+    [BanjiTest]
+    public static void 学科科目各生成三千条无黑名单搭配()
+    {
+        var generator = new LocalQuipGenerator(() => new DateTime(2026, 11, 6, 10, 30, 0), Lcg(11));
+        foreach (var subject in LocalQuipGenerator.AcademicSubjects)
+        {
+            Assert.True(LocalQuipGenerator.IsAcademicSubject(subject), $"{subject} 应属于学科");
+            for (var i = 0; i < 3000; i++)
+            {
+                var text = generator.NextForSubject(subject);
+                Assert.True(LocalQuipGenerator.IsValidQuip(text), $"学科台词不合法：[{subject}] {text}");
+                Assert.True(text.Length is >= 4 and <= 60, $"长度不合理：{text}");
+                Assert.True(text.Contains(subject, StringComparison.Ordinal), $"学科台词应当提到科目：{text}");
+                foreach (var activity in LocalQuipGenerator.ActivitySubjects)
+                    Assert.False(text.Contains(activity, StringComparison.Ordinal), $"学科台词里混入活动课名 [{activity}]：{text}");
+            }
+        }
+    }
+
+    [BanjiTest]
+    public static void 活动课科目各生成三千条无学科味搭配()
+    {
+        var generator = new LocalQuipGenerator(() => new DateTime(2026, 11, 6, 10, 30, 0), Lcg(23));
+        var forbidden = new[] { "这道题", "的题", "错题", "题目", "公式", "默写", "背诵", "作业", "试卷", "好好相处" };
+        foreach (var activity in LocalQuipGenerator.ActivitySubjects)
+        {
+            Assert.True(LocalQuipGenerator.IsActivitySubject(activity), $"{activity} 应属于活动课");
+            for (var i = 0; i < 3000; i++)
+            {
+                var text = generator.NextForSubject(activity);
+                Assert.True(LocalQuipGenerator.IsValidQuip(text), $"活动课台词不合法：[{activity}] {text}");
+                Assert.True(text.Length is >= 4 and <= 60, $"长度不合理：{text}");
+                Assert.True(text.Contains(activity, StringComparison.Ordinal), $"活动课台词应当提到活动：{text}");
+                foreach (var token in forbidden)
+                    Assert.False(text.Contains(token, StringComparison.Ordinal), $"活动课台词出现学科味词 [{token}]：{text}");
+            }
+        }
+    }
+
+    [BanjiTest]
+    public static void 默认生成三千条全部合法且相邻不重复()
+    {
+        var generator = new LocalQuipGenerator(() => new DateTime(2026, 6, 7, 15, 0, 0), Lcg(31));
+        var previous = "";
+        for (var i = 0; i < 3000; i++)
+        {
+            var text = generator.Next();
+            Assert.True(LocalQuipGenerator.IsValidQuip(text), $"默认台词不合法：{text}");
+            Assert.False(text == previous, $"相邻重复：{text}");
+            previous = text;
+        }
+    }
+
+    [BanjiTest]
+    public static void 固定台词库同样通过语义校验()
+    {
+        foreach (var quip in QuipLibrary.AllQuips)
+        {
+            Assert.True(LocalQuipGenerator.IsValidQuip(quip), $"固定台词库命中语义黑名单：{quip}");
+        }
+    }
+
+    [BanjiTest]
+    public static void 科目分类判断()
+    {
+        Assert.Equal(QuipSubjectKind.Academic, LocalQuipGenerator.SubjectKindOf("数学")!.Value);
+        Assert.Equal(QuipSubjectKind.Activity, LocalQuipGenerator.SubjectKindOf("体育")!.Value);
+        Assert.True(LocalQuipGenerator.SubjectKindOf("物理") == QuipSubjectKind.Academic);
+        Assert.True(LocalQuipGenerator.SubjectKindOf("自习") == QuipSubjectKind.Activity);
+        Assert.Null(LocalQuipGenerator.SubjectKindOf("不存在的科目"));
+        Assert.Throws<ArgumentException>(() => new LocalQuipGenerator().NextForSubject("不存在的科目"));
+    }
 }
+

@@ -1,4 +1,4 @@
-﻿using Banji.Core.Models;
+using Banji.Core.Models;
 
 namespace Banji.Core.Settings;
 
@@ -35,8 +35,16 @@ public sealed class AppSettings
     public bool AutoStartWithWindows { get; set; } = false;
 
     // ---------------- 宠物 ----------------
-    /// <summary>宠物整体缩放，无级、无上下限（UI 允许 0.05~20，滑块 0.3~3）。</summary>
+    /// <summary>整体缩放（历史字段，保留兼容；现在推荐分别用 PetScale / PanelScale）。</summary>
     public double UiScale { get; set; } = 1.0;
+    /// <summary>宠物本体缩放（与头顶课表分离），无级，0.2~5。</summary>
+    public double PetScale { get; set; } = 1.0;
+    /// <summary>头顶课表/常驻信息面板缩放，与宠物本体分离，0.4~4。</summary>
+    public double PanelScale { get; set; } = 1.0;
+    /// <summary>课表/信息面板相对默认位置的横向偏移（DIP，-800~800；正=向右）。</summary>
+    public double PanelOffsetX { get; set; } = 0;
+    /// <summary>课表/信息面板相对默认位置的纵向偏移（DIP，-800~800；正=向下）。</summary>
+    public double PanelOffsetY { get; set; } = 0;
     /// <summary>宠物距屏幕右边缘的偏移（px，缩放前基准单位）。</summary>
     public double PetRightMargin { get; set; } = 0;
     /// <summary>宠物距工作区底部的偏移（px）。</summary>
@@ -61,6 +69,8 @@ public sealed class AppSettings
     public ButtonStyleSettings Buttons { get; set; } = new();
     public BubbleStyleSettings Bubble { get; set; } = new();
     public NoticeStyleSettings Notice { get; set; } = new();
+    /// <summary>端侧生成式 AI（本地 GGUF 模型）设置。</summary>
+    public AiSettings Ai { get; set; } = new();
 
     /// <summary>把非法值收敛到合法范围，并补齐嵌套对象。</summary>
     public void Normalize()
@@ -69,6 +79,7 @@ public sealed class AppSettings
         Buttons ??= new ButtonStyleSettings();
         Bubble ??= new BubbleStyleSettings();
         Notice ??= new NoticeStyleSettings();
+        Ai ??= new AiSettings();
         CountdownEvents ??= new List<CountdownEventItem>();
         CountdownEvents.RemoveAll(c => c is null || string.IsNullOrWhiteSpace(c.Name));
         foreach (var ev in CountdownEvents)
@@ -78,6 +89,12 @@ public sealed class AppSettings
 
         if (UiScale <= 0) UiScale = 1.0;
         UiScale = Math.Clamp(UiScale, 0.05, 20.0);
+        if (PetScale <= 0) PetScale = 1.0;
+        PetScale = Math.Clamp(PetScale, 0.2, 5.0);
+        if (PanelScale <= 0) PanelScale = 1.0;
+        PanelScale = Math.Clamp(PanelScale, 0.4, 4.0);
+        PanelOffsetX = Math.Clamp(PanelOffsetX, -800, 800);
+        PanelOffsetY = Math.Clamp(PanelOffsetY, -800, 800);
         ClassDurationMinutes = Math.Clamp(ClassDurationMinutes, 1, 600);
         BellOffsetSeconds = Math.Clamp(BellOffsetSeconds, -60, 60);
         NoticeDurationSeconds = Math.Clamp(NoticeDurationSeconds, 1, 60);
@@ -90,6 +107,7 @@ public sealed class AppSettings
         Bubble.Normalize();
         Notice.Normalize();
         Pet.Normalize();
+        Ai.Normalize();
     }
 
     public AppSettings Clone()
@@ -99,6 +117,7 @@ public sealed class AppSettings
         copy.Buttons = Buttons.Clone();
         copy.Bubble = Bubble.Clone();
         copy.Notice = Notice.Clone();
+        copy.Ai = Ai.Clone();
         copy.CountdownEvents = CountdownEvents.Select(c => c.Clone()).ToList();
         return copy;
     }
@@ -248,4 +267,37 @@ public sealed class NoticeStyleSettings
     }
 
     public NoticeStyleSettings Clone() => (NoticeStyleSettings)MemberwiseClone();
+}
+
+/// <summary>端侧生成式 AI 设置（v1.2.0）。模型为 GGUF 文件，本地推理，联网只用于下载模型。</summary>
+public sealed class AiSettings
+{
+    /// <summary>已加载/选择的 GGUF 模型完整路径（空 = 未安装）。</summary>
+    public string ModelPath { get; set; } = "";
+    public string ModelName { get; set; } = "";
+    /// <summary>最近一次选择/下载的模型 Id，用于设置界面回显。</summary>
+    public string LastModelId { get; set; } = "";
+    /// <summary>宠物摸头台词优先尝试 AI 生成（未加载模型时自动回退本地台词库）。</summary>
+    public bool EnableAiQuips { get; set; } = true;
+    /// <summary>启动时自动加载上次的模型（后台加载，不阻塞宠物）。</summary>
+    public bool AutoLoadModel { get; set; } = true;
+    /// <summary>推理线程数，0 = 自动（物理核数一半）。</summary>
+    public int Threads { get; set; } = 0;
+    /// <summary>上下文长度（tokens）。</summary>
+    public int ContextSize { get; set; } = 2048;
+    public double Temperature { get; set; } = 0.8;
+    public int MaxTokens { get; set; } = 256;
+
+    public void Normalize()
+    {
+        ModelPath ??= "";
+        ModelName ??= "";
+        LastModelId ??= "";
+        Threads = Math.Clamp(Threads, 0, 64);
+        ContextSize = Math.Clamp(ContextSize, 512, 8192);
+        Temperature = Math.Clamp(Temperature, 0.0, 1.5);
+        MaxTokens = Math.Clamp(MaxTokens, 32, 1024);
+    }
+
+    public AiSettings Clone() => (AiSettings)MemberwiseClone();
 }

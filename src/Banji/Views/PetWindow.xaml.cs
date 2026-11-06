@@ -60,6 +60,13 @@ public partial class PetWindow : Window
     private MenuFlyout? _openMenu;
     private DateTime? _previewTime;
 
+    // v1.2.0：宠物本体与课表/信息面板分离缩放 + 面板偏移
+    private double _petRightInWindow;
+    private double _petBottomInWindow;
+    private double _lastPanelDesignHeight = -1;
+    private bool _applyingLayout;
+    private int _quipRequestId;
+
     public PetWindow()
     {
         InitializeComponent();
@@ -152,8 +159,12 @@ public partial class PetWindow : Window
     {
         try
         {
-            var content = string.IsNullOrWhiteSpace(text) ? _quips.Next(Settings.UseLocalQuipGenerator) : text.Trim();
-            _bubble.ShowQuip(content);
+            if (!string.IsNullOrWhiteSpace(text))
+            {
+                _bubble.ShowQuip(text.Trim());
+                return;
+            }
+            RequestQuipBubble();
         }
         catch (Exception ex)
         {
@@ -173,7 +184,7 @@ public partial class PetWindow : Window
                 catch (Exception ex) { Log.Error("记录摸头失败", ex); }
             }
             if (!Settings.EnableQuips) return;
-            _bubble.ShowQuip(_quips.Next(Settings.UseLocalQuipGenerator));
+            RequestQuipBubble();
         }
         catch (Exception ex)
         {
@@ -181,6 +192,70 @@ public partial class PetWindow : Window
         }
     }
 
+    /// <summary>
+    /// v1.2.0：摸头台词优先用端侧 AI（模型已加载且开启 AI 台词时），
+    /// 1.5 秒内拿不到结果就回退本地台词生成器；全程异步，不阻塞 UI 线程。
+    /// </summary>
+    private void RequestQuipBubble()
+    {
+        IAiService? ai = null;
+        try
+        {
+            ai = AppServices.Current.Ai;
+        }
+        catch
+        {
+            // 服务未就绪时走本地
+        }
+
+        var settings = Settings;
+        if (ai is not null && settings.Ai.EnableAiQuips && ai.IsModelLoaded)
+        {
+            var requestId = ++_quipRequestId;
+            _ = GenerateAiQuipAsync(ai, requestId);
+            return;
+        }
+
+        _bubble.ShowQuip(_quips.Next(settings.UseLocalQuipGenerator));
+    }
+
+    private async Task GenerateAiQuipAsync(IAiService ai, int requestId)
+    {
+        string? generated = null;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(1500));
+            var task = ai.TryGenerateQuipAsync("课堂桌面宠物的一句短台词", cts.Token);
+            var finished = await Task.WhenAny(task, Task.Delay(1500)).ConfigureAwait(true);
+            if (finished == task)
+            {
+                try { generated = await task.ConfigureAwait(true); }
+                catch { generated = null; }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"AI 台词生成失败，回退本地台词：{ex.Message}");
+        }
+
+        if (requestId != _quipRequestId) return; // 期间又摸了一次，丢弃旧结果
+
+        var text = SanitizeAiQuip(generated);
+        if (!string.IsNullOrEmpty(text))
+        {
+            _bubble.ShowQuip(text);
+            return;
+        }
+        _bubble.ShowQuip(_quips.Next(Settings.UseLocalQuipGenerator));
+    }
+
+    private static string? SanitizeAiQuip(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return null;
+        var value = text.Replace("\r", " ").Replace("\n", " ").Trim().Trim('"', '“', '”', '\'');
+        if (value.Length > 80) value = value[..80];
+        return value.Length >= 2 ? value : null;
+    }
     // =========================================================================
     // 初始化
     // =========================================================================
@@ -210,16 +285,18 @@ public partial class PetWindow : Window
             _settingsSignature = BuildSettingsSignature(settings);
             RefreshAccentBrushes(settings);
             Pet.ApplySettings(settings.Pet, settings.PetBlinkEnabled, settings.PetBobEnabled);
-            ApplyScale(settings.UiScale);
             Topmost = settings.AlwaysOnTop;
-            TimetablePanel.Visibility = settings.ShowTimetablePanel ? Visibility.Visible : Visibility.Collapsed;
+            TimetableSection.Visibility = settings.ShowTimetablePanel ? Visibility.Visible : Visibility.Collapsed;
             UpdateTriangleStates();
 
             LoadPreviewTime();
+            MigrateLegacyUiScale();
             UpdateLayout();
             InitializePosition();
+            ApplyLayout();
             _snapshot = GetLiveSnapshot();
             RefreshFromSnapshot(force: true);
+            UpdatePanelSizeIfNeeded();
             SubscribeServices();
 
             _topmostTimer.Start();
@@ -234,20 +311,10 @@ public partial class PetWindow : Window
 
     private void InitializePosition()
     {
-        var work = SystemParameters.WorkArea;
         var settings = Settings;
-        if (settings.PetRightMargin <= 0.5 && settings.PetBottomMargin <= 0.5)
-        {
-            // 首次启动：吸附屏幕右侧、任务栏上方，整体位于屏幕中部偏下。
-            _rightMargin = 0;
-            _bottomMargin = Math.Round(work.Height * 0.10);
-        }
-        else
-        {
-            _rightMargin = Math.Clamp(settings.PetRightMargin, 0, 4000);
-            _bottomMargin = Math.Clamp(settings.PetBottomMargin, 0, 4000);
-        }
-        AnchorToMargins();
+        // 宠物群右下角锚定工作区右下；margin 即宠物群到右/下边缘的距离。
+        _rightMargin = Math.Clamp(settings.PetRightMargin, 0, 4000);
+        _bottomMargin = Math.Clamp(settings.PetBottomMargin, 0, 4000);
     }
 
     private void SubscribeServices()
@@ -318,8 +385,7 @@ public partial class PetWindow : Window
 
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        if (!_initialized || _dragging) return;
-        AnchorToMargins();
+        if (_applyingLayout || !_initialized) return;
         _bubble.RepositionAndRefresh();
     }
 
@@ -328,9 +394,7 @@ public partial class PetWindow : Window
         if (e.PropertyName is not ("WorkArea" or "PrimaryScreenWidth" or "PrimaryScreenHeight")) return;
         try
         {
-            UpdateLayout();
-            AnchorToMargins();
-            _bubble.RepositionAndRefresh();
+            ApplyLayout();
         }
         catch (Exception ex)
         {
@@ -338,36 +402,132 @@ public partial class PetWindow : Window
         }
     }
 
-    private void AnchorToMargins()
+    /// <summary>
+    /// v1.2.0 核心布局：宠物群（PetScale）与课表/信息面板（PanelScale + PanelOffset）分别缩放/定位，
+    /// 窗口尺寸取两者的并集（不裁切）；宠物群右下角锚定工作区右下 margin 处，并把窗口位置收进屏幕。
+    /// </summary>
+    private void ApplyLayout()
     {
+        if (!_initialized) return;
+        _applyingLayout = true;
         try
         {
-            var work = SystemParameters.WorkArea;
-            var width = ActualWidth;
-            var height = ActualHeight;
-            if (double.IsNaN(width) || width <= 0 || double.IsNaN(height) || height <= 0) return;
+            var settings = Settings;
+            var petScale = Math.Clamp(settings.PetScale, 0.2, 5.0);
+            var panelScale = Math.Clamp(settings.PanelScale, 0.4, 4.0);
+            PetScaleTransform.ScaleX = petScale;
+            PetScaleTransform.ScaleY = petScale;
+            PanelScaleTransform.ScaleX = panelScale;
+            PanelScaleTransform.ScaleY = panelScale;
 
-            var left = work.Right - _rightMargin - width;
-            var top = work.Bottom - _bottomMargin - height;
-            // 拖出屏幕太远时至少保留一部分可见。
-            left = Math.Clamp(left, work.Left - width + 80, work.Right - 80);
-            top = Math.Clamp(top, work.Top - height + 80, work.Bottom - 80);
+            // 面板自然尺寸（未缩放）
+            PanelStack.Measure(new Size(196, double.PositiveInfinity));
+            var panelDesignHeight = Math.Max(40, PanelStack.DesiredSize.Height);
+            _lastPanelDesignHeight = panelDesignHeight;
+            var panelW = 196 * panelScale;
+            var panelH = panelDesignHeight * panelScale;
+
+            // 宠物群设计尺寸（功能区展开时向左多出 170 宽）
+            var petClusterDesignW = _functionsExpanded ? 282 : 112;
+            PetHost.Width = petClusterDesignW;
+            PetHost.Height = 134;
+            var petW = petClusterDesignW * petScale;
+            var petH = 134 * petScale;
+
+            // 面板默认位置：右缘与宠物群右缘对齐、底边在宠物群上方 8px；再叠加用户偏移
+            var offsetX = settings.PanelOffsetX;
+            var offsetY = settings.PanelOffsetY;
+            const double gap = 8;
+            var panelRight = offsetX;
+            var panelBottom = -petH - gap + offsetY;
+            var panelLeft = panelRight - panelW;
+            var panelTop = panelBottom - panelH;
+
+            // 局部坐标：宠物群右下角为 (0,0)，向上/向左为负
+            var minX = Math.Min(-petW, panelLeft);
+            var maxX = Math.Max(0, panelRight);
+            var minY = Math.Min(-petH, panelTop);
+            var maxY = 0;
+
+            const double margin = 24;
+            var windowW = Math.Max(140, (maxX - minX) + margin * 2);
+            var windowH = Math.Max(180, (maxY - minY) + margin * 2);
+
+            var petRightInWindow = margin + (0 - minX);
+            var petBottomInWindow = margin + (0 - minY);
+            _petRightInWindow = petRightInWindow;
+            _petBottomInWindow = petBottomInWindow;
+
+            Canvas.SetLeft(PetHost, Math.Round(petRightInWindow - petW));
+            Canvas.SetTop(PetHost, Math.Round(petBottomInWindow - petH));
+            Canvas.SetLeft(PanelHost, Math.Round(margin + (panelLeft - minX)));
+            Canvas.SetTop(PanelHost, Math.Round(margin + (panelTop - minY)));
+
+            if (Math.Abs(Width - windowW) > 0.5) Width = windowW;
+            if (Math.Abs(Height - windowH) > 0.5) Height = windowH;
+
+            var work = SystemParameters.WorkArea;
+            var anchorX = work.Right - _rightMargin;
+            var anchorY = work.Bottom - _bottomMargin;
+            var desiredLeft = anchorX - petRightInWindow;
+            var desiredTop = anchorY - petBottomInWindow;
+            var left = windowW <= work.Width
+                ? Math.Clamp(desiredLeft, work.Left, work.Right - windowW)
+                : work.Right - windowW;
+            var top = windowH <= work.Height
+                ? Math.Clamp(desiredTop, work.Top, work.Bottom - windowH)
+                : work.Bottom - windowH;
             Left = Math.Round(left);
             Top = Math.Round(top);
         }
         catch (Exception ex)
         {
-            Log.Error("定位宠物窗口失败", ex);
+            Log.Error("计算宠物窗布局失败", ex);
+        }
+        finally
+        {
+            _applyingLayout = false;
+        }
+        _bubble.RepositionAndRefresh();
+    }
+
+    /// <summary>课表面板内容高度变化（展开/折叠、D-Day 行出现等）时重新计算窗口尺寸，避免裁切。</summary>
+    private void UpdatePanelSizeIfNeeded()
+    {
+        if (!_initialized) return;
+        try
+        {
+            PanelStack.Measure(new Size(196, double.PositiveInfinity));
+            var height = PanelStack.DesiredSize.Height;
+            if (Math.Abs(height - _lastPanelDesignHeight) > 0.5) ApplyLayout();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"更新课表面板尺寸失败：{ex.Message}");
         }
     }
 
-    private void ApplyScale(double scale)
+    /// <summary>旧版 UiScale 兼容：升级到 v1.2.0 后把整体缩放拆到 PetScale / PanelScale。</summary>
+    private void MigrateLegacyUiScale()
     {
-        if (double.IsNaN(scale) || scale <= 0) scale = 1;
-        scale = Math.Clamp(scale, 0.05, 20.0);
-        if (Math.Abs(UiScaleTransform.ScaleX - scale) < 1e-9) return;
-        UiScaleTransform.ScaleX = scale;
-        UiScaleTransform.ScaleY = scale;
+        try
+        {
+            var settings = Settings;
+            if (Math.Abs(settings.UiScale - 1.0) < 0.01) return;
+            if (Math.Abs(settings.PetScale - 1.0) > 0.001 || Math.Abs(settings.PanelScale - 1.0) > 0.001) return;
+            var legacy = settings.UiScale;
+            SettingsService.Update(x =>
+            {
+                x.PetScale = Math.Clamp(legacy, 0.2, 5.0);
+                x.PanelScale = Math.Clamp(legacy, 0.4, 4.0);
+                x.UiScale = 1.0;
+            });
+            Log.Info($"旧版 UiScale={legacy:0.##} 已迁移为 PetScale/PanelScale");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"UiScale 兼容迁移失败：{ex.Message}");
+        }
     }
 
     private void PersistPosition()
@@ -375,10 +535,8 @@ public partial class PetWindow : Window
         try
         {
             var work = SystemParameters.WorkArea;
-            var right = work.Right - (Left + ActualWidth);
-            var bottom = work.Bottom - (Top + ActualHeight);
-            _rightMargin = Math.Clamp(Math.Round(right), 0, 4000);
-            _bottomMargin = Math.Clamp(Math.Round(bottom), 0, 4000);
+            _rightMargin = Math.Clamp(Math.Round(work.Right - (Left + _petRightInWindow)), 0, 4000);
+            _bottomMargin = Math.Clamp(Math.Round(work.Bottom - (Top + _petBottomInWindow)), 0, 4000);
             // 贴近边缘时吸附。
             if (_rightMargin < 24) _rightMargin = 0;
             if (_bottomMargin < 24) _bottomMargin = 0;
@@ -387,15 +545,13 @@ public partial class PetWindow : Window
                 s.PetRightMargin = _rightMargin;
                 s.PetBottomMargin = _bottomMargin;
             });
-            AnchorToMargins();
-            _bubble.RepositionAndRefresh();
+            ApplyLayout();
         }
         catch (Exception ex)
         {
             Log.Error("保存宠物位置失败", ex);
         }
     }
-
     // =========================================================================
     // 宠物交互：拖动 / 摸一摸
     // =========================================================================
@@ -541,6 +697,8 @@ public partial class PetWindow : Window
             FunctionHost.Visibility = Visibility.Visible;
             FunctionHost.Opacity = 0;
             FunctionHostOffset.X = 14;
+            _functionsExpanded = true;
+            ApplyLayout();
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
             FunctionHost.BeginAnimation(OpacityProperty,
                 new DoubleAnimation(1, TimeSpan.FromMilliseconds(140)) { EasingFunction = ease });
@@ -568,7 +726,7 @@ public partial class PetWindow : Window
                 if (!_functionsExpanded)
                 {
                     FunctionHost.Visibility = Visibility.Collapsed;
-                    _bubble.RepositionAndRefresh();
+                    ApplyLayout();
                 }
             };
             FunctionHost.BeginAnimation(OpacityProperty, fade);
@@ -668,11 +826,10 @@ public partial class PetWindow : Window
         try
         {
             var settings = Settings;
-            ApplyScale(settings.UiScale);
             if (Topmost != settings.AlwaysOnTop) Topmost = settings.AlwaysOnTop;
 
             var target = settings.ShowTimetablePanel ? Visibility.Visible : Visibility.Collapsed;
-            if (TimetablePanel.Visibility != target) TimetablePanel.Visibility = target;
+            if (TimetableSection.Visibility != target) TimetableSection.Visibility = target;
 
             var signature = BuildSettingsSignature(settings);
             if (signature != _settingsSignature)
@@ -685,7 +842,7 @@ public partial class PetWindow : Window
                 RefreshFromSnapshot(force: true);
             }
 
-            _bubble.RepositionAndRefresh();
+            ApplyLayout();
         }
         catch (Exception ex)
         {
@@ -746,6 +903,7 @@ public partial class PetWindow : Window
         RefreshInfo(_snapshot, overrun);
         RefreshTimetable(_snapshot, force);
         UpdateTriangleStates();
+        UpdatePanelSizeIfNeeded();
     }
 
     private TimeSpan? ResolveOverrunElapsed()
@@ -995,6 +1153,10 @@ public partial class PetWindow : Window
         catch { return fallback; }
     }
 }
+
+
+
+
 
 
 

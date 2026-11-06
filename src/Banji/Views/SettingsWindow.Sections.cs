@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Microsoft.Win32;
+using Banji.Core.Abstractions;
 using Banji.Core.Backup;
 using Banji.Core.Boot;
 using Banji.Core.Infrastructure;
@@ -298,8 +299,8 @@ public partial class SettingsWindow
     private FrameworkElement BuildPetSection()
     {
         var s = Settings.Current;
-        return SectionFrame("宠物", "宠物大小、颜色、动画与陪伴养成；缩放无级、无上下限。",
-            Card(ScaleRow(s.UiScale)),
+        return SectionFrame("宠物", "宠物形象大小、课表大小与位置分别可调；颜色、动画与陪伴养成。v1.2 起“整体缩放”已拆成“宠物形象大小”和“课表大小”。",
+            BuildScaleAndPositionCard(s),
             Card(
                 ColorRow("身体颜色", "默认雾蓝色 #8FB6F2（第二轮：方形、扁扁的小方块）。", s.Pet.BodyColor, "#8FB6F2",
                     v => Settings.Update(x => x.Pet.BodyColor = v)),
@@ -321,6 +322,65 @@ public partial class SettingsWindow
                     Toggle(s.EnableGrowth, v => Settings.Update(x => x.EnableGrowth = v)))
             ),
             BuildGrowthCard());
+    }
+
+    /// <summary>v1.2.0：宠物形象大小 / 课表大小 / 课表左右上下位置 + 恢复默认。</summary>
+    private FrameworkElement BuildScaleAndPositionCard(AppSettings s)
+    {
+        var restoreButton = new Button
+        {
+            Content = "恢复默认大小与位置",
+            Style = StyleRes("SettingDangerButton"),
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        restoreButton.Click += (_, _) => OnRestoreScaleAndPosition();
+
+        return Card(
+            ScaleInputRow("宠物形象大小",
+                "只影响宠物本体（滑块 0.2~5，也可直接输入数值）。以前是整体缩放，v1.2 起与“课表大小”分开调节。",
+                0.2, 5.0, s.PetScale, 0.05,
+                v => Settings.Update(x => x.PetScale = Math.Round(v, 3))),
+            Divider(),
+            SliderRow("课表大小",
+                "只影响宠物头顶的课表与常驻信息面板（0.4~4），不影响宠物本体。",
+                0.4, 4.0, s.PanelScale, 0.05, v => $"{v:0.00}",
+                v => Settings.Update(x => x.PanelScale = Math.Round(v, 3))),
+            Divider(),
+            SliderRow("课表左右位置",
+                "课表/信息面板相对默认位置的横向偏移（DIP），正数向右、负数向左。",
+                -300, 300, Math.Clamp(s.PanelOffsetX, -300, 300), 5, FormatOffset,
+                v => Settings.Update(x => x.PanelOffsetX = Math.Round(v))),
+            Divider(),
+            SliderRow("课表上下位置",
+                "课表/信息面板相对默认位置的纵向偏移（DIP），正数向下、负数向上。",
+                -300, 300, Math.Clamp(s.PanelOffsetY, -300, 300), 5, FormatOffset,
+                v => Settings.Update(x => x.PanelOffsetY = Math.Round(v))),
+            Divider(),
+            Row("恢复默认", "宠物形象大小 = 1，课表大小 = 1，课表左右/上下位置 = 0。", restoreButton)
+        );
+    }
+
+    private static string FormatOffset(double value)
+    {
+        var px = (int)Math.Round(value);
+        return px > 0 ? $"+{px} px" : $"{px} px";
+    }
+
+    private void OnRestoreScaleAndPosition()
+    {
+        Guard("恢复默认大小与位置", () =>
+        {
+            Settings.Update(x =>
+            {
+                x.PetScale = 1;
+                x.PanelScale = 1;
+                x.PanelOffsetX = 0;
+                x.PanelOffsetY = 0;
+                x.UiScale = 1; // 历史字段兼容
+            });
+            Info("已恢复默认大小与位置。");
+            RebuildSection("pet");
+        });
     }
 
     // =========================================================================
@@ -416,7 +476,15 @@ public partial class SettingsWindow
         });
     }
 
-    private FrameworkElement ScaleRow(double current)
+    /// <summary>滑块 + 数值输入框的一行（v1.2.0 分离缩放用）。</summary>
+    private FrameworkElement ScaleInputRow(
+        string title,
+        string? description,
+        double min,
+        double max,
+        double current,
+        double step,
+        Action<double> onChange)
     {
         var valueText = new TextBlock
         {
@@ -434,45 +502,45 @@ public partial class SettingsWindow
             Width = 82,
             Style = StyleRes("Input.TextBox"),
             VerticalContentAlignment = VerticalAlignment.Center,
-            ToolTip = "允许 0.05 ~ 20 之间的任意数值"
+            ToolTip = $"允许 {min} ~ {max} 之间的任意数值"
         };
         var sync = false;
 
-        var slider = Slider(0.1, 4.0, Math.Clamp(current, 0.1, 4.0), 0.05, v =>
+        var slider = Slider(min, max, Math.Clamp(current, min, max), step, v =>
         {
             valueText.Text = v.ToString("0.00");
             if (!sync) input.Text = v.ToString("0.##");
-            Settings.Update(x => x.UiScale = Math.Round(v, 3));
-        }, 200);
+            onChange(v);
+        }, 190);
 
         void CommitInput()
         {
             if (sync) return;
             if (!double.TryParse(input.Text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
             {
-                input.Text = Settings.Current.UiScale.ToString("0.##");
+                input.Text = current.ToString("0.##");
                 return;
             }
-            value = Math.Clamp(value, 0.05, 20.0);
+            value = Math.Clamp(value, min, max);
             input.Text = value.ToString("0.##");
             valueText.Text = value.ToString("0.00");
             sync = true;
-            slider.Value = Math.Clamp(value, 0.1, 4.0);
+            slider.Value = value;
             sync = false;
-            Settings.Update(x => x.UiScale = value);
+            onChange(value);
         }
 
-        input.LostFocus += (_, _) => Guard("修改宠物缩放", CommitInput);
+        input.LostFocus += (_, _) => Guard($"修改「{title}」", CommitInput);
         input.KeyDown += (_, e) =>
         {
             if (e.Key != Key.Enter) return;
-            Guard("修改宠物缩放", CommitInput);
+            Guard($"修改「{title}」", CommitInput);
             e.Handled = true;
         };
 
         var hint = new TextBlock
         {
-            Text = "或输入 0.05~20",
+            Text = $"或输入 {min}~{max}",
             FontFamily = FontRegular,
             FontSize = 11.5,
             Foreground = TextTertiary,
@@ -485,7 +553,264 @@ public partial class SettingsWindow
         panel.Children.Add(valueText);
         panel.Children.Add(input);
         panel.Children.Add(hint);
-        return Row("缩放", "滑块 0.1~4，也可直接输入 0.05~20 之间的任意数值（无级缩放）。", panel);
+        return Row(title, description, panel);
+    }
+
+    // =========================================================================
+    // 端侧 AI（v1.2.0）
+    // =========================================================================
+
+    private FrameworkElement BuildAiSection()
+    {
+        var ai = Settings.Current.Ai;
+
+        _aiStatusText = new TextBlock
+        {
+            FontFamily = FontMedium,
+            FontSize = 14,
+            Foreground = TextPrimary,
+            TextWrapping = TextWrapping.Wrap
+        };
+        _aiModelText = new TextBlock
+        {
+            FontFamily = FontRegular,
+            FontSize = 12.5,
+            Foreground = TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0)
+        };
+        _aiModelSizeText = new TextBlock
+        {
+            FontFamily = FontRegular,
+            FontSize = 12,
+            Foreground = TextTertiary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        _aiModelDirText = new TextBlock
+        {
+            FontFamily = FontRegular,
+            FontSize = 11.5,
+            Foreground = TextTertiary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 0)
+        };
+        _aiModelListPanel = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+
+        var statusContent = new StackPanel();
+        statusContent.Children.Add(_aiStatusText);
+        statusContent.Children.Add(_aiModelText);
+        statusContent.Children.Add(_aiModelSizeText);
+        statusContent.Children.Add(_aiModelDirText);
+        statusContent.Children.Add(_aiModelListPanel);
+
+        var releaseButton = new Button
+        {
+            Content = "释放模型内存",
+            Style = StyleRes("SettingGhostButton"),
+            Margin = new Thickness(0, 0, 10, 0)
+        };
+        releaseButton.Click += (_, _) => OnReleaseAiModel();
+
+        var helpContent = BuildAiHelpContent();
+        RefreshAiStatusDisplay();
+
+        return SectionFrame("端侧 AI",
+            "在本机跑一个小型大语言模型：生成宠物台词、和你聊天。模型只在下载时需要联网，推理全程离线。",
+            Card(
+                FullRow("模型状态", null, statusContent),
+                Divider(),
+                Row("模型管理", "查看可下载模型、一键下载到本地，或选择已有的 GGUF 文件（下载源 hf-mirror，国内可直连）。",
+                    ActionButton("打开模型管理", () => AppServices.Current.ShowAiModelManager(), primary: true)),
+                Divider(),
+                Row("与班机聊天", "打开聊天窗口和端侧模型对话（聊天记录只在内存中，不上传）。",
+                    ActionButton("打开聊天", () => AppServices.Current.ShowChatWindow())),
+                Divider(),
+                Row("释放模型内存", "把模型从内存卸载（下载的文件仍保留，下次可重新加载；释放后 AI 台词自动回退本地台词库）。",
+                    releaseButton)
+            ),
+            Card(
+                Row("启用 AI 台词", "摸头台词优先尝试端侧 AI 生成；未加载模型时自动回退本地台词生成器。",
+                    Toggle(ai.EnableAiQuips, v => Settings.Update(x => x.Ai.EnableAiQuips = v))),
+                Divider(),
+                Row("启动时自动加载", "班机启动后在后台加载上次使用的模型，不阻塞宠物和课堂功能。",
+                    Toggle(ai.AutoLoadModel, v => Settings.Update(x => x.Ai.AutoLoadModel = v))),
+                Divider(),
+                SliderRow("温度", "越高回答越随机有创意，越低越稳定（0~1.5，默认 0.8）。",
+                    0, 1.5, ai.Temperature, 0.05, v => $"{v:0.00}",
+                    v => Settings.Update(x => x.Ai.Temperature = Math.Round(v, 2))),
+                Divider(),
+                Row("上下文长度", "能记住的对话长度（tokens）。越长越占内存、响应越慢，16GB 内存推荐 2048。",
+                    Segmented(new[]
+                    {
+                        ("512", 512),
+                        ("1024", 1024),
+                        ("2048", 2048),
+                        ("4096", 4096)
+                    }, ai.ContextSize, v => Settings.Update(x => x.Ai.ContextSize = v)))
+            ),
+            Card(FullRow("模型下载与离线说明", null, helpContent)));
+    }
+
+    private FrameworkElement BuildAiHelpContent()
+    {
+        var content = new StackPanel();
+        content.Children.Add(new TextBlock
+        {
+            Text = "• 模型不随安装包分发，需在“打开模型管理”里一键下载（联网仅用于下载，可用 hf-mirror 国内镜像）。",
+            FontFamily = FontRegular,
+            FontSize = 12.5,
+            Foreground = TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 21
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "• 下载完成后本地 CPU 推理，聊天与 AI 台词全程不联网；聊天记录不上传、不落盘。",
+            FontFamily = FontRegular,
+            FontSize = 12.5,
+            Foreground = TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 21
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "• 模型目录：" + SafeAiModelDirectory(),
+            FontFamily = FontRegular,
+            FontSize = 11.5,
+            Foreground = TextTertiary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0)
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = "• 16GB 内存建议 1.5B；模型加载在后台进行，加载期间宠物/课堂功能不受影响。",
+            FontFamily = FontRegular,
+            FontSize = 11.5,
+            Foreground = TextTertiary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 3, 0, 0)
+        });
+        return content;
+    }
+
+    private static string SafeAiModelDirectory()
+    {
+        try
+        {
+            return AppServices.IsInitialized
+                ? AppServices.Current.Ai.ModelDirectory
+                : Path.Combine(AppPaths.Root, "models");
+        }
+        catch
+        {
+            return Path.Combine(AppPaths.Root, "models");
+        }
+    }
+
+    private void RefreshAiStatusDisplay()
+    {
+        if (_aiStatusText is null || !AppServices.IsInitialized) return;
+        try
+        {
+            var ai = AppServices.Current.Ai;
+            var (statusText, brush) = ai.Status switch
+            {
+                AiModelStatus.Ready => ("已就绪，可以聊天 / 生成 AI 台词", BrushRes("Brush.Brand", Colors.RoyalBlue)),
+                AiModelStatus.Loading => ("正在后台加载模型…（加载期间宠物和课堂功能不受影响）", BrushRes("Brush.Warning", Colors.Orange)),
+                AiModelStatus.Failed => ("加载失败，可在“模型管理”里更换模型或重试", BrushRes("Brush.Accent", Colors.Red)),
+                _ => ("未安装模型（请在“模型管理”里下载，或选择本地 GGUF 文件）", BrushRes("Brush.TextTertiary", Colors.Gray))
+            };
+            _aiStatusText!.Text = "状态：" + statusText;
+            _aiStatusText.Foreground = brush;
+
+            var settingsAi = Settings.Current.Ai;
+            var loadedName = !string.IsNullOrWhiteSpace(ai.LoadedModelName)
+                ? ai.LoadedModelName
+                : !string.IsNullOrWhiteSpace(settingsAi.ModelName) ? $"{settingsAi.ModelName}（上次使用，未加载）" : "";
+            if (_aiModelText is not null)
+            {
+                _aiModelText.Text = loadedName.Length > 0 ? $"模型：{loadedName}" : "模型：无";
+            }
+            if (_aiModelSizeText is not null)
+            {
+                _aiModelSizeText.Text = "模型大小：" + FormatAiModelSize(ai, settingsAi);
+            }
+            if (_aiModelDirText is not null)
+            {
+                _aiModelDirText.Text = "模型目录：" + SafeAiModelDirectory();
+            }
+
+            // 可下载模型列表（来自 IAiService.ModelOptions）
+            if (_aiModelListPanel is not null)
+            {
+                _aiModelListPanel.Children.Clear();
+                var options = ai.ModelOptions;
+                if (options is { Count: > 0 })
+                {
+                    _aiModelListPanel.Children.Add(new TextBlock
+                    {
+                        Text = "可下载模型：",
+                        FontFamily = FontRegular,
+                        FontSize = 11.5,
+                        Foreground = TextTertiary,
+                        Margin = new Thickness(0, 0, 0, 3)
+                    });
+                    foreach (var option in options)
+                    {
+                        var line = new TextBlock
+                        {
+                            Text = $"• {option.Name}　≈ {option.SizeText}" + (option.Recommended ? "　（推荐）" : ""),
+                            FontFamily = FontRegular,
+                            FontSize = 11.5,
+                            Foreground = option.Recommended ? BrushRes("Brush.Brand", Colors.RoyalBlue) : TextTertiary,
+                            TextWrapping = TextWrapping.Wrap
+                        };
+                        _aiModelListPanel.Children.Add(line);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("设置窗口刷新 AI 状态失败", ex);
+        }
+    }
+
+    private static string FormatAiModelSize(IAiService ai, AiSettings settingsAi)
+    {
+        try
+        {
+            var path = ai.LoadedModelPath;
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) path = settingsAi.ModelPath;
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                var length = new FileInfo(path).Length;
+                if (length > 0) return FormatFileSize(length);
+            }
+            // 未加载/文件不存在时，用上次选择的模型 Id 从可下载列表推断大小
+            if (!string.IsNullOrWhiteSpace(settingsAi.LastModelId))
+            {
+                var option = ai.ModelOptions?.FirstOrDefault(o =>
+                    string.Equals(o.Id, settingsAi.LastModelId, StringComparison.OrdinalIgnoreCase));
+                if (option is { SizeBytes: > 0 }) return $"≈ {option.SizeText}（未加载）";
+            }
+        }
+        catch
+        {
+            // 仅展示用
+        }
+        return "—";
+    }
+
+    private void OnReleaseAiModel()
+    {
+        Guard("释放模型内存", () =>
+        {
+            AppServices.Current.Ai.Unload();
+            RefreshAiStatusDisplay();
+            Info("已释放模型内存。AI 台词会自动回退本地台词生成器。");
+        });
     }
 
     // =========================================================================

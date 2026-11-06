@@ -32,7 +32,14 @@ public partial class SettingsWindow : Window
     private TextBlock? _growthAchievementText;
     private TextBlock? _growthExtraText;
 
-    /// <summary>可选：打开时定位到的分区（general/class/pick/buttons/bubble/pet/countdown/timer/preview/backup）。</summary>
+    // v1.2.0 端侧 AI 状态显示控件
+    private TextBlock? _aiStatusText;
+    private TextBlock? _aiModelText;
+    private TextBlock? _aiModelSizeText;
+    private TextBlock? _aiModelDirText;
+    private StackPanel? _aiModelListPanel;
+
+    /// <summary>可选：打开时定位到的分区（general/class/pick/buttons/bubble/pet/ai/countdown/timer/preview/backup）。</summary>
     public string? InitialSection
     {
         get => _initialSection;
@@ -73,6 +80,8 @@ public partial class SettingsWindow : Window
             _subscribed = true;
             try { AppServices.Current.Growth.Changed += OnGrowthChanged; }
             catch (Exception ex) { Log.Error("设置窗口订阅养成统计失败", ex); }
+            try { AppServices.Current.Ai.StatusChanged += OnAiStatusChanged; }
+            catch (Exception ex) { Log.Error("设置窗口订阅 AI 状态失败", ex); }
         }
 
         _built.Clear();
@@ -86,6 +95,8 @@ public partial class SettingsWindow : Window
             _subscribed = false;
             try { AppServices.Current.Growth.Changed -= OnGrowthChanged; }
             catch { /* 退出过程中可能已不可用 */ }
+            try { AppServices.Current.Ai.StatusChanged -= OnAiStatusChanged; }
+            catch { /* 同上 */ }
         }
         try
         {
@@ -106,6 +117,18 @@ public partial class SettingsWindow : Window
         catch (Exception ex)
         {
             Log.Error("设置窗口刷新养成统计失败", ex);
+        }
+    });
+
+    private void OnAiStatusChanged(object? sender, EventArgs e) => AppServices.RunOnUi(() =>
+    {
+        try
+        {
+            RefreshAiStatusDisplay();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("设置窗口刷新 AI 状态失败", ex);
         }
     });
 
@@ -136,6 +159,7 @@ public partial class SettingsWindow : Window
         "buttons" or "button" => "buttons",
         "bubble" or "bubbles" => "bubble",
         "pet" or "growth" => "pet",
+        "ai" or "endai" or "local-ai" or "localai" or "端侧ai" => "ai",
         "countdown" or "exam" or "dday" or "exam-countdown" => "countdown",
         "timer" or "audio" => "timer",
         "preview" or "notice" => "preview",
@@ -162,6 +186,7 @@ public partial class SettingsWindow : Window
         "buttons" => BuildButtonsSection(),
         "bubble" => BuildBubbleSection(),
         "pet" => BuildPetSection(),
+        "ai" => BuildAiSection(),
         "countdown" => BuildCountdownSection(),
         "timer" => BuildTimerSection(),
         "preview" => BuildPreviewSection(),
@@ -190,6 +215,8 @@ public partial class SettingsWindow : Window
     private Brush BrandBrush => Res("Brush.Brand", Brushes.RoyalBlue);
     private Brush AccentBrush => Res("Brush.Accent", Brushes.Red);
     private Brush DividerBrush => Res("Brush.Divider", Brushes.Gainsboro);
+
+    private Brush BrushRes(string key, Color fallback) => TryFindResource(key) as Brush ?? new SolidColorBrush(fallback);
 
     private Style? StyleRes(string key) => TryFindResource(key) as Style;
 

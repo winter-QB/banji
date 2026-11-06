@@ -211,23 +211,28 @@ Write-Title "6. 启动安装后的程序"
 if ($SkipLaunchTest) {
     Write-Host "   （已跳过 -SkipLaunchTest）" -ForegroundColor Yellow
 } else {
-    $otherBanji = @(Get-Process -Name "Banji" -ErrorAction SilentlyContinue | Where-Object {
-        try { -not $_.Path -or -not $_.Path.StartsWith(($installFull.TrimEnd('\') + '\'), [StringComparison]::OrdinalIgnoreCase) }
-        catch { $true }
-    })
-    if ($otherBanji.Count -gt 0) {
-        Write-Host "   检测到已有班机实例在运行（开发调试实例）。单实例机制下，安装后的 exe 会转发命令后自行退出，属预期行为；跳过启动检查。" -ForegroundColor Yellow
-    } else {
-        Stop-BanjiFromDir $installFull
-        Start-Sleep -Milliseconds 400
+    # 用 BANJI_INSTANCE_SUFFIX 隔离出独立实例：机器上即使还有别的班机实例（开发调试/无法结束的旧实例），
+    # 也不会被单实例机制拦下，可以干净地验证“安装后的 exe 能正常启动”。
+    Stop-BanjiFromDir $installFull
+    Start-Sleep -Milliseconds 400
+    $oldSuffix = $env:BANJI_INSTANCE_SUFFIX
+    $env:BANJI_INSTANCE_SUFFIX = "selftest"
+    try {
         $appProcess = Start-Process -FilePath (Join-Path $installFull "Banji.exe") -PassThru
-        Start-Sleep -Seconds 4
+        Start-Sleep -Seconds 5
         $appProcess.Refresh()
-        Assert-True (-not $appProcess.HasExited) "安装后的 Banji.exe 能正常启动并保持运行"
+        Assert-True (-not $appProcess.HasExited) "安装后的 Banji.exe 能正常启动并保持运行（隔离实例）"
         if (-not $appProcess.HasExited) {
-            Stop-Process -Id $appProcess.Id -Force -ErrorAction SilentlyContinue
+            # 用隔离管道让它正常退出，再兜底强杀
+            Start-Process -FilePath (Join-Path $installFull "Banji.exe") -ArgumentList "--cmd", "exit" -Wait -ErrorAction SilentlyContinue | Out-Null
+            Start-Sleep -Milliseconds 1200
+            $appProcess.Refresh()
+            if (-not $appProcess.HasExited) { Stop-Process -Id $appProcess.Id -Force -ErrorAction SilentlyContinue }
             Start-Sleep -Milliseconds 600
         }
+    } finally {
+        if ($null -eq $oldSuffix) { Remove-Item Env:\BANJI_INSTANCE_SUFFIX -ErrorAction SilentlyContinue }
+        else { $env:BANJI_INSTANCE_SUFFIX = $oldSuffix }
     }
 }
 

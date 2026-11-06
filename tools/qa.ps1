@@ -20,7 +20,12 @@ $Rest = if ($all.Count -gt 1) { @($all[1..($all.Count - 1)]) } else { @() }
 $Rest = @($Rest)  # 防止单元素数组被 if 展开成标量（导致 $Rest[0] 取到字符串首字符）
 
 function Get-BanjiProcesses {
-    @(Get-Process Banji -ErrorAction SilentlyContinue | Sort-Object StartTime)
+    # 只统计由本工具启动的开发版实例（按可执行文件路径匹配）；权限受限的旧实例/安装版会被忽略，
+    # 避免在 BANJI_INSTANCE_SUFFIX 隔离测试时误杀用户正在运行的班机。
+    $devExe = $exe
+    @(Get-Process Banji -ErrorAction SilentlyContinue | Where-Object {
+            try { $_.Path -eq $devExe } catch { $false }
+        } | Sort-Object StartTime)
 }
 
 function Kill-AllBanji {

@@ -6,7 +6,10 @@ namespace Banji.Core.Infrastructure;
 /// <summary>单实例命名管道：第二个实例把命令转发给首实例。</summary>
 public sealed class IpcServer : IDisposable
 {
-    public const string PipeName = "Banji.Ipc";
+    /// <summary>
+    /// 命名管道名。默认 Banji.Ipc；可用环境变量 BANJI_INSTANCE_SUFFIX 隔离并行测试实例。
+    /// </summary>
+    public static string PipeName { get; set; } = "Banji.Ipc";
 
     private readonly Action<string[]> _handler;
     private Thread? _thread;

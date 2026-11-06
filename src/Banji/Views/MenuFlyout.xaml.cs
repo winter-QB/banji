@@ -78,7 +78,11 @@ public partial class MenuFlyout : Window
                 Log.Warn($"设置菜单滚动高度失败：{ex.Message}");
             }
             SyncFromSettings();
-            if (_anchorSet) PlaceNear(_anchor);
+            // 从菜单小三角打开时贴着三角；QA/命令直接 ShowMenuFlyout 时给一个屏幕右下角的默认位置。
+            if (_anchorSet)
+                PlaceNear(_anchor);
+            else
+                PlaceNear(new Point(SystemParameters.WorkArea.Right - 70, SystemParameters.WorkArea.Bottom - 240));
             AnimateIn();
             _outsideClickWatch.Start();
         };
@@ -213,9 +217,14 @@ public partial class MenuFlyout : Window
         {
             var settings = AppServices.Current.Settings.Current;
             _syncing = true;
-            PetScaleSlider.Value = Math.Clamp(settings.UiScale, PetScaleSlider.Minimum, PetScaleSlider.Maximum);
-            PetScaleBox.Text = settings.UiScale.ToString("0.##");
-            PetScaleValue.Text = settings.UiScale.ToString("0.00") + "×";
+            PetScaleSlider.Value = Math.Clamp(settings.PetScale, PetScaleSlider.Minimum, PetScaleSlider.Maximum);
+            PetScaleValue.Text = settings.PetScale.ToString("0.00") + "×";
+            PanelScaleSlider.Value = Math.Clamp(settings.PanelScale, PanelScaleSlider.Minimum, PanelScaleSlider.Maximum);
+            PanelScaleValue.Text = settings.PanelScale.ToString("0.00") + "×";
+            PanelOffsetXSlider.Value = Math.Clamp(settings.PanelOffsetX, PanelOffsetXSlider.Minimum, PanelOffsetXSlider.Maximum);
+            PanelOffsetXValue.Text = FormatOffset(settings.PanelOffsetX);
+            PanelOffsetYSlider.Value = Math.Clamp(settings.PanelOffsetY, PanelOffsetYSlider.Minimum, PanelOffsetYSlider.Maximum);
+            PanelOffsetYValue.Text = FormatOffset(settings.PanelOffsetY);
             ButtonOpacitySlider.Value = settings.Buttons.IdleOpacityPercent;
             ButtonOpacityValue.Text = $"{settings.Buttons.IdleOpacityPercent}%";
             ToggleTimetableText.Text = settings.ShowTimetablePanel ? "隐藏课表" : "显示课表";
@@ -236,82 +245,72 @@ public partial class MenuFlyout : Window
     }
 
     // =========================================================================
-    // 宠物大小
+    // 缩放 / 课表位置（v1.2.0：宠物与课表分别调节）
     // =========================================================================
+
+    private static string FormatOffset(double value)
+    {
+        var rounded = (int)Math.Round(value);
+        return rounded > 0 ? $"+{rounded}" : rounded.ToString(CultureInfo.InvariantCulture);
+    }
 
     private void OnPetScaleSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
     {
         if (_syncing) return;
-        ApplyScale(e.NewValue, updateBox: true);
+        ApplyLayoutSetting(
+            value => AppServices.Current.Settings.Update(s => s.PetScale = Math.Clamp(value, 0.2, 5.0)),
+            e.NewValue,
+            value => PetScaleValue.Text = value.ToString("0.00") + "×");
     }
 
-    private void ApplyScale(double value, bool updateBox)
+    private void OnPanelScaleSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncing) return;
+        ApplyLayoutSetting(
+            value => AppServices.Current.Settings.Update(s => s.PanelScale = Math.Clamp(value, 0.4, 4.0)),
+            e.NewValue,
+            value => PanelScaleValue.Text = value.ToString("0.00") + "×");
+    }
+
+    private void OnPanelOffsetXChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncing) return;
+        var rounded = Math.Round(e.NewValue);
+        ApplyLayoutSetting(
+            value => AppServices.Current.Settings.Update(s => s.PanelOffsetX = Math.Round(value)),
+            rounded,
+            _ => PanelOffsetXValue.Text = FormatOffset(rounded));
+    }
+
+    private void OnPanelOffsetYChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_syncing) return;
+        var rounded = Math.Round(e.NewValue);
+        ApplyLayoutSetting(
+            value => AppServices.Current.Settings.Update(s => s.PanelOffsetY = Math.Round(value)),
+            rounded,
+            _ => PanelOffsetYValue.Text = FormatOffset(rounded));
+    }
+
+    /// <summary>滑块实时生效：写设置 + 更新数值显示（设置变更会驱动 PetWindow 重新布局）。</summary>
+    private void ApplyLayoutSetting(Action<double> apply, double value, Action<double> updateLabel)
     {
         try
         {
-            value = Math.Clamp(Math.Round(value, 3), 0.05, 20.0);
-            AppServices.Current.Settings.Update(s => s.UiScale = value);
-
+            apply(value);
             _syncing = true;
-            if (PetScaleValue is not null) PetScaleValue.Text = value.ToString("0.00") + "×";
-            if (updateBox && PetScaleBox is not null) PetScaleBox.Text = value.ToString("0.##");
-            if (PetScaleSlider is not null)
-            {
-                var sliderValue = Math.Clamp(value, PetScaleSlider.Minimum, PetScaleSlider.Maximum);
-                if (Math.Abs(PetScaleSlider.Value - sliderValue) > 1e-6) PetScaleSlider.Value = sliderValue;
-            }
+            updateLabel(value);
             _syncing = false;
         }
         catch (Exception ex)
         {
-            Log.Error("调整宠物大小失败", ex);
-        }
-    }
-
-    private void OnPetScaleBoxKeyDown(object sender, KeyEventArgs e)
-    {
-        if (e.Key != Key.Enter) return;
-        e.Handled = true;
-        CommitPetScaleBox();
-        Keyboard.ClearFocus();
-    }
-
-    private void OnPetScaleBoxLostFocus(object sender, RoutedEventArgs e) => CommitPetScaleBox();
-
-    private void CommitPetScaleBox()
-    {
-        if (_syncing) return;
-        var text = PetScaleBox.Text.Trim().Replace('×', ' ').Trim();
-        var ok = double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)
-                 || double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out value);
-        if (!ok)
-        {
-            SyncPetScaleDisplay();
-            return;
-        }
-        ApplyScale(value, updateBox: true);
-    }
-
-    private void SyncPetScaleDisplay()
-    {
-        try
-        {
-            var settings = AppServices.Current.Settings.Current;
-            _syncing = true;
-            PetScaleSlider.Value = Math.Clamp(settings.UiScale, PetScaleSlider.Minimum, PetScaleSlider.Maximum);
-            PetScaleBox.Text = settings.UiScale.ToString("0.##");
-            PetScaleValue.Text = settings.UiScale.ToString("0.00") + "×";
-        }
-        catch (Exception ex)
-        {
-            Log.Error("恢复宠物大小显示失败", ex);
+            Log.Error("调整宠物/课表布局失败", ex);
         }
         finally
         {
             _syncing = false;
         }
     }
-
     // =========================================================================
     // 按钮透明度
     // =========================================================================
@@ -479,6 +478,8 @@ public partial class MenuFlyout : Window
 
     private void OnDashboardClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowDashboard());
 
+    private void OnChatClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowChatWindow());
+
     private void OnRosterClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowRosterManager());
 
     private void OnTimetableClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowTimetableEditor());
@@ -527,6 +528,8 @@ public partial class MenuFlyout : Window
         }
     }
 }
+
+
 
 
 

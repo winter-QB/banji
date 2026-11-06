@@ -151,6 +151,9 @@
                 <Button x:Name="MenuDashboard" Style="{StaticResource Menu.Item}" Click="OnDashboardClick">
                     <TextBlock Text="仪表盘" />
                 </Button>
+                <Button x:Name="MenuChat" Style="{StaticResource Menu.Item}" Click="OnChatClick">
+                    <TextBlock Text="和班机聊天" />
+                </Button>
                 <Button x:Name="MenuRoster" Style="{StaticResource Menu.Item}" Click="OnRosterClick">
                     <TextBlock Text="花名册管理" />
                 </Button>
@@ -184,24 +187,48 @@
                     </Grid>
                 </Button>
 
-                <!-- 宠物大小 -->
-                <StackPanel Margin="12,7,12,3">
+                <!-- 宠物大小（v1.2.0 只缩放宠物本体） -->
+                <StackPanel Margin="12,7,12,2">
                     <Grid Margin="0,0,0,1">
                         <TextBlock Text="宠物大小" FontSize="12" Foreground="#1F2329" VerticalAlignment="Center" />
                         <TextBlock x:Name="PetScaleValue" HorizontalAlignment="Right" VerticalAlignment="Center"
                                    FontFamily="{StaticResource Font.Medium}" FontSize="12" Foreground="#317FFF" />
                     </Grid>
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="58" />
-                        </Grid.ColumnDefinitions>
-                        <Slider x:Name="PetScaleSlider" Grid.Column="0" Style="{StaticResource Menu.Slider}"
-                                Minimum="0.1" Maximum="4" Margin="0,0,4,0" ValueChanged="OnPetScaleSliderChanged" />
-                        <TextBox x:Name="PetScaleBox" Grid.Column="1" Style="{StaticResource Menu.ValueBox}"
-                                 Text="1.00" KeyDown="OnPetScaleBoxKeyDown" LostFocus="OnPetScaleBoxLostFocus"
-                                 ToolTip="0.05 ~ 20，任意值均可" />
+                    <Slider x:Name="PetScaleSlider" Style="{StaticResource Menu.Slider}"
+                            Minimum="0.2" Maximum="5" ValueChanged="OnPetScaleSliderChanged" />
+                </StackPanel>
+
+                <!-- 课表大小（v1.2.0 独立缩放课表+常驻信息） -->
+                <StackPanel Margin="12,3,12,2">
+                    <Grid Margin="0,0,0,1">
+                        <TextBlock Text="课表大小" FontSize="12" Foreground="#1F2329" VerticalAlignment="Center" />
+                        <TextBlock x:Name="PanelScaleValue" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   FontFamily="{StaticResource Font.Medium}" FontSize="12" Foreground="#317FFF" />
                     </Grid>
+                    <Slider x:Name="PanelScaleSlider" Style="{StaticResource Menu.Slider}"
+                            Minimum="0.4" Maximum="4" ValueChanged="OnPanelScaleSliderChanged" />
+                </StackPanel>
+
+                <!-- 课表左右位置（相对默认位置偏移） -->
+                <StackPanel Margin="12,3,12,2">
+                    <Grid Margin="0,0,0,1">
+                        <TextBlock Text="课表左右位置" FontSize="12" Foreground="#1F2329" VerticalAlignment="Center" />
+                        <TextBlock x:Name="PanelOffsetXValue" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   FontFamily="{StaticResource Font.Medium}" FontSize="12" Foreground="#317FFF" />
+                    </Grid>
+                    <Slider x:Name="PanelOffsetXSlider" Style="{StaticResource Menu.Slider}"
+                            Minimum="-300" Maximum="300" ValueChanged="OnPanelOffsetXChanged" />
+                </StackPanel>
+
+                <!-- 课表上下位置 -->
+                <StackPanel Margin="12,3,12,3">
+                    <Grid Margin="0,0,0,1">
+                        <TextBlock Text="课表上下位置" FontSize="12" Foreground="#1F2329" VerticalAlignment="Center" />
+                        <TextBlock x:Name="PanelOffsetYValue" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   FontFamily="{StaticResource Font.Medium}" FontSize="12" Foreground="#317FFF" />
+                    </Grid>
+                    <Slider x:Name="PanelOffsetYSlider" Style="{StaticResource Menu.Slider}"
+                            Minimum="-300" Maximum="300" ValueChanged="OnPanelOffsetYChanged" />
                 </StackPanel>
 
                 <!-- 按钮透明度 -->
@@ -297,4 +324,5 @@
         </Border>
     </Grid>
 </Window>
+
 

@@ -19,6 +19,9 @@
       - 统一使用仓库内本地 .NET SDK（.dotnet\dotnet.exe），不依赖系统 dotnet。
       - 构建前会结束正在运行的「班机」进程，避免 exe 被占用。
       - 测试项目退出码非 0 时立即中止。
+      - v1.2.0 起主程序内置 LLamaSharp CPU 推理库（llama.dll / ggml*.dll 等原生库），
+        单文件发布体积约 209MB；原生库随 IncludeAllContentForSelfExtract 自解压，安装包相应增大约 22MB。
+      - 机器上若有无法结束的旧实例（其它权限上下文），脚本会跳过它继续构建（不阻塞打包）。
 #>
 [CmdletBinding()]
 param(

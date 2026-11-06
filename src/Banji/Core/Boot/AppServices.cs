@@ -1,7 +1,8 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Threading;
 using Banji.Core.Abstractions;
+using Banji.Core.Ai;
 using Banji.Core.Audio;
 using Banji.Core.Backup;
 using Banji.Core.Grouping;
@@ -42,6 +43,8 @@ public sealed class AppServices
     public IGroupingService Grouping { get; }
     public IPetGrowthService Growth { get; }
     public IBackupService Backup { get; }
+    // v1.2.0：端侧生成式 AI
+    public IAiService Ai { get; }
 
     public PetWindow? PetWindow { get; private set; }
 
@@ -60,7 +63,8 @@ public sealed class AppServices
         INotificationService notices,
         IGroupingService grouping,
         IPetGrowthService growth,
-        IBackupService backup)
+        IBackupService backup,
+        IAiService ai)
     {
         Settings = settings;
         Rosters = rosters;
@@ -74,6 +78,7 @@ public sealed class AppServices
         Grouping = grouping;
         Growth = growth;
         Backup = backup;
+        Ai = ai;
         Wire();
     }
 
@@ -92,7 +97,8 @@ public sealed class AppServices
         var grouping = new GroupingService(rosters);
         var growth = new PetGrowthService();
         var backup = new BackupService();
-        _current = new AppServices(settings, rosters, picker, timetable, schedule, clock, timers, audio, notices, grouping, growth, backup);
+        var ai = new AiService(settings);
+        _current = new AppServices(settings, rosters, picker, timetable, schedule, clock, timers, audio, notices, grouping, growth, backup, ai);
         return _current;
     }
 
@@ -180,6 +186,8 @@ public sealed class AppServices
         Register(PetWindow);
         PetWindow.Show();
         Clock.Start();
+        try { Ai.TryAutoLoad(); }
+        catch (Exception ex) { Log.Error("AI 自动加载失败", ex); }
         Log.Info("班机已启动");
     }
 
@@ -329,6 +337,21 @@ public sealed class AppServices
     public RingCalibrationWindow ShowRingCalibrationWindow()
     {
         var w = ShowWindow(() => new RingCalibrationWindow());
+        w.ShowInTaskbar = true;
+        return w;
+    }
+
+    // ---- v1.2.0 端侧 AI 窗口 ----
+    public ChatWindow ShowChatWindow()
+    {
+        var w = ShowWindow(() => new ChatWindow());
+        w.ShowInTaskbar = true;
+        return w;
+    }
+
+    public AiModelDialog ShowAiModelManager()
+    {
+        var w = ShowWindow(() => new AiModelDialog());
         w.ShowInTaskbar = true;
         return w;
     }

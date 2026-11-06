@@ -207,3 +207,27 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
 
 窗口统一保留无参构造；`SettingsWindow` 继续保留 `InitialSection`；所有新增窗口由 `AppServices` 统一创建。
 **禁止**：修改 `Core/Models/**`、`Core/Settings/**`、`Core/Abstractions/**`、`Core/Boot/AppServices.cs`、`App.xaml*`、`Resources/**`、`Banji.csproj`、`Banji.sln`（需要改先找 Lead）。单双周/值日**不要实现**。
+
+## 11. 第三轮需求契约（v1.2.0，2026-11-06）
+
+**用户修改意见**：①「宠物形象」与「头顶课表」大小**分别**调节（以前是整体缩放）；② 宠物头顶课表位置可由用户用**横/纵两个滑块**调整相对位置；③ 本地台词生成器出现“体育这道题”“今天也要和自习好好相处”等不合逻辑搭配，需修复；④ 端侧生成式 AI：内存 16GB（可用约 14GB），可上更大参数模型，并在应用内提供与模型对话的**聊天窗口**。
+**版本规则（此后统一）**：语义化版本 `vMAJOR.MINOR.PATCH`；新功能→MINOR（本轮 **v1.2.0**），修 bug→PATCH，不兼容→MAJOR；预发布用 `-rc.N`；不使用 “SP1” 之类后缀。
+
+### 11.1 共享契约（Lead 已实现）
+- `AppSettings` 新增：`PetScale`（宠物本体缩放 0.2~5）、`PanelScale`（课表/信息面板缩放 0.4~4）、`PanelOffsetX`/`PanelOffsetY`（面板相对默认位置偏移 DIP，±800）；`UiScale` 保留兼容（默认 1）。
+- 新增 `AiSettings Ai`：`ModelPath`/`ModelName`/`LastModelId`/`EnableAiQuips`/`AutoLoadModel`/`Threads`/`ContextSize`/`Temperature`/`MaxTokens`。
+- 新服务 `IAiService`（`Banji.Core.Abstractions/Ai.cs`）：`Status/LoadedModelName/LoadedModelPath/ModelDirectory/ModelOptions/StatusChanged/DownloadProgress`、`LoadModelAsync/Unload/TryAutoLoad/DownloadModelAsync/GenerateChatReplyAsync/TryGenerateQuipAsync/TryGenerateGreetingAsync`；DTO：`AiModelOption/AiDownloadProgress/AiChatMessage/AiChatRole/AiModelStatus`。
+- `AppServices.Current.Ai` 已接线；`Start()` 调用 `Ai.TryAutoLoad()`；新增窗口方法 `ShowChatWindow()` / `ShowAiModelManager()`。
+- NuGet 已加入：`LLamaSharp 0.30.0` + `LLamaSharp.Backend.Cpu 0.30.0`（CPU 推理，win-x64 原生库随发布自解压）。
+- 新增 QA 命令：`--cmd chat`、`--cmd ai-models`、`--cmd ai-status`、`--cmd ai-download <modelId>`、`--cmd ai-say <prompt>`。
+- 模型目录：`%APPDATA%\Banji\models`；下载源默认 hf-mirror（国内可直连），三档 Qwen2.5 GGUF：0.5B 469MB / 1.5B 1.07GB / 3B 2.01GB。模型**不随安装包分发**，由用户在应用内一键下载或选择本地 gguf。
+
+### 11.2 第三轮文件作用域
+| 负责人 | 新增/变更 |
+|---|---|
+| `ai-chat`（新） | `Core/Ai/**`（替换 stub 为 LLamaSharp 实现）、`Views/ChatWindow.*`、`Views/AiModelDialog.*`、`Tests/Ai*.cs` |
+| `pet-ui` | `Views/PetWindow.*`、`MenuFlyout.*`、`Controls/Pet/**`、`Core/Quips/**`：分离缩放/面板偏移、菜单滑块、AI 台词接入、台词语义修复 |
+| `features-ui` | `Views/SettingsWindow.*`、`DashboardWindow.*`：新增缩放/位置设置、AI 分区；版本页脚 v1.2.0 |
+| `packaging` | v1.2.0 打包、README/RELEASE_NOTES 更新、模型下载说明、安装器自测 |
+
+窗口统一保留无参构造；禁止修改 `Core/Models/**`、`Core/Settings/**`、`Core/Abstractions/**`、`Core/Boot/AppServices.cs`、`App.xaml*`、`Resources/**`、`Banji.csproj`、`Banji.sln`（需改先找 Lead）。

@@ -16,7 +16,22 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        _instanceMutex = new Mutex(initiallyOwned: true, @"Local\Banji.SingleInstance", out var createdNew);
+        // 开发/QA：BANJI_INSTANCE_SUFFIX 环境变量可隔离出独立实例（独立 mutex/管道），
+        // 用于机器上存在无法结束的旧实例时做发布版验证。正式使用不设置该变量。
+        var instanceSuffix = Environment.GetEnvironmentVariable("BANJI_INSTANCE_SUFFIX");
+        if (!string.IsNullOrWhiteSpace(instanceSuffix))
+        {
+            var safeSuffix = new string(instanceSuffix.Where(char.IsLetterOrDigit).ToArray());
+            if (safeSuffix.Length == 0) safeSuffix = "qa";
+            IpcServer.PipeName = "Banji.Ipc." + safeSuffix;
+            Environment.SetEnvironmentVariable("BANJI_INSTANCE_SUFFIX", safeSuffix);
+        }
+
+        var mutexName = @"Local\Banji.SingleInstance" +
+                        (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("BANJI_INSTANCE_SUFFIX"))
+                            ? ""
+                            : "." + Environment.GetEnvironmentVariable("BANJI_INSTANCE_SUFFIX"));
+        _instanceMutex = new Mutex(initiallyOwned: true, mutexName, out var createdNew);
         if (!createdNew)
         {
             // 已有实例：把参数转发过去（无参数则只是“显示/唤起”）
@@ -126,6 +141,87 @@ public partial class App : Application
             case "ring-calibration":
                 svc.ShowRingCalibrationWindow();
                 break;
+            case "dismiss-notices":
+                svc.Notices.DismissAll();
+                Log.Info("QA：已关闭所有全屏提示");
+                break;
+            case "chat":
+                svc.ShowChatWindow();
+                break;
+            case "ai-models":
+                svc.ShowAiModelManager();
+                break;
+            case "ai-status":
+                Log.Info($"AI 状态: {svc.Ai.Status} loaded={svc.Ai.IsModelLoaded} model={svc.Ai.LoadedModelName ?? "-"} path={svc.Ai.LoadedModelPath ?? "-"} dir={svc.Ai.ModelDirectory}");
+                break;
+            case "ai-download":
+                if (args.Length > 1)
+                {
+                    var modelId = args[1];
+                    var option = svc.Ai.ModelOptions.FirstOrDefault(m => m.Id.Equals(modelId, StringComparison.OrdinalIgnoreCase));
+                    if (option is null) { Log.Warn($"未知模型: {modelId}"); break; }
+                    _ = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        try
+                        {
+                            svc.Ai.DownloadProgress += (_, p) => Log.Info($"AI 下载 {p.Phase} {p.Percent:0.0}% ({p.BytesReceived}/{p.TotalBytes})");
+                            var ok = await svc.Ai.DownloadModelAsync(option);
+                            Log.Info($"AI 下载结果: {ok}，状态={svc.Ai.Status}");
+                        }
+                        catch (Exception ex) { Log.Error("AI 下载失败", ex); }
+                    });
+                }
+                break;
+            case "ai-load":
+                if (args.Length > 1)
+                {
+                    var modelPath = string.Join(' ', args[1..]);
+                    _ = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var ok = await svc.Ai.LoadModelAsync(modelPath);
+                            if (ok)
+                            {
+                                svc.Settings.Update(x =>
+                                {
+                                    x.Ai.ModelPath = modelPath;
+                                    x.Ai.ModelName = System.IO.Path.GetFileNameWithoutExtension(modelPath);
+                                });
+                            }
+                            Log.Info($"AI 加载结果: {ok}，状态={svc.Ai.Status}，模型={svc.Ai.LoadedModelName ?? "-"}");
+                        }
+                        catch (Exception ex) { Log.Error("AI 加载失败", ex); }
+                    });
+                }
+                break;
+            case "ai-quip":
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        var quip = await svc.Ai.TryGenerateQuipAsync();
+                        Log.Info("AI 台词: " + (quip ?? "<null>"));
+                    }
+                    catch (Exception ex) { Log.Error("AI 台词失败", ex); }
+                });
+                break;
+            case "ai-say":
+                if (args.Length > 1)
+                {
+                    var prompt = string.Join(' ', args[1..]);
+                    _ = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var msgs = new List<AiChatMessage> { new() { Role = AiChatRole.User, Content = prompt } };
+                            var reply = await svc.Ai.GenerateChatReplyAsync(msgs, null);
+                            Log.Info("AI 回复: " + (reply ?? "<null>"));
+                        }
+                        catch (Exception ex) { Log.Error("AI 生成失败", ex); }
+                    });
+                }
+                break;
             case "backup-export":
                 if (args.Length > 1)
                 {
@@ -153,6 +249,27 @@ public partial class App : Application
             case "set-notice-duration":
                 if (args.Length > 1 && int.TryParse(args[1], out var noticeSecs))
                     svc.Settings.Update(x => x.NoticeDurationSeconds = noticeSecs);
+                break;
+            case "set":
+                // QA：--cmd set petscale 1.6 / panelscale 0.8 / panelx 80 / panely -40 / uiscale 1.2
+                if (args.Length > 2 && double.TryParse(args[2], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out var settingValue))
+                {
+                    var key = args[1].ToLowerInvariant();
+                    svc.Settings.Update(x =>
+                    {
+                        switch (key)
+                        {
+                            case "petscale": x.PetScale = settingValue; break;
+                            case "panelscale": x.PanelScale = settingValue; break;
+                            case "panelx": x.PanelOffsetX = settingValue; break;
+                            case "panely": x.PanelOffsetY = settingValue; break;
+                            case "uiscale": x.UiScale = settingValue; break;
+                        }
+                    });
+                    svc.Clock.Refresh();
+                    Log.Info($"QA：设置 {key} = {settingValue}");
+                }
                 break;
             case "exam-demo":
             {

@@ -1,4 +1,4 @@
-# 班机安装程序（Banji.Installer）
+﻿# 班机安装程序（Banji.Installer）
 
 自研的 WPF 安装程序，负责把《班机》主程序、鸿蒙字体、README 和字体许可证安装到当前用户环境。
 **不需要管理员权限**：只写当前用户目录、HKCU 注册表和开始菜单/桌面。
@@ -22,7 +22,7 @@ dotnet publish src\Banji.Installer\Banji.Installer.csproj -c Release -r win-x64 
 ```
 
 > 注意：安装器使用 `IncludeNativeLibrariesForSelfExtract`（而不是主程序的 `IncludeAllContentForSelfExtract`）。
-> 内嵌的 ~120MB 负载如果全部解包到临时目录，首次打开会等待 20 秒以上；只解包原生库、托管程序集直接从单文件加载，首次打开约 10 秒、之后每次 2~3 秒。
+> 内嵌的 ~135MB 负载（v1.2.0 起主程序内置 LLamaSharp CPU 推理库）如果全部解包到临时目录，首次打开会等待 20 秒以上；只解包原生库、托管程序集直接从单文件加载，首次打开约 10 秒、之后每次 2~3 秒。
 
 ## 命令行参数
 
@@ -44,7 +44,7 @@ dotnet publish src\Banji.Installer\Banji.Installer.csproj -c Release -r win-x64 
 
 ```
 payload.zip
-├─ app\                      → 解压到安装目录根（Banji.exe、Assets\Templates 等）
+├─ app\                      → 解压到安装目录根（Banji.exe（含 LLamaSharp 原生库）、Assets\Templates 等）
 ├─ fonts\                    → 解压到 安装目录\Fonts（6 个 HarmonyOS Sans SC ttf）
 ├─ README.md                 → 安装目录\README.md
 └─ HarmonyOS_Sans_LICENSE.txt→ 安装目录\HarmonyOS_Sans_LICENSE.txt
@@ -53,7 +53,7 @@ payload.zip
 ## 安装时做了什么
 
 1. 结束正在运行的 `Banji.exe`（覆盖升级需要）；
-2. 解压负载到安装目录（默认 `%LOCALAPPDATA%\Programs\Banji`）；
+2. 解压负载到安装目录（默认 `%LOCALAPPDATA%\Programs\Banji`，v1.2.0 安装后约 260MB）；
 3. 把 6 个字体复制到 `%LOCALAPPDATA%\Microsoft\Windows\Fonts`，并写
    `HKCU\Software\Microsoft\Windows NT\CurrentVersion\Fonts`（显示名与字体 Full Name 一致）；
 4. 创建桌面快捷方式 `班机.lnk`、开始菜单 `班机\班机.lnk` 和 `班机\卸载班机.lnk`；
@@ -61,6 +61,8 @@ payload.zip
 6. 写 `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\Banji` 卸载项
    （DisplayName/DisplayVersion/Publisher/DisplayIcon/InstallLocation/UninstallString/QuietUninstallString 等）；
 7. 任何一步失败都会尽力回滚本次新创建的文件、字体注册、快捷方式和注册表项，并给出中文错误提示。
+
+> AI 模型（GGUF）**不随安装包分发**：安装在 `%APPDATA%\Banji\models`，由用户在“设置 → 端侧 AI → 打开模型管理”里下载或选择本地文件；卸载安装版不会删除该目录。
 
 ## 卸载时做了什么
 

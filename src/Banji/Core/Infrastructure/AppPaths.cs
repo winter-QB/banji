@@ -9,16 +9,27 @@ public static class AppPaths
     private static string _root = "";
     private static string _logs = "";
 
-    /// <summary>%APPDATA%\Banji</summary>
+    /// <summary>
+    /// %APPDATA%\Banji（正式数据目录）。
+    /// 若设置了 BANJI_INSTANCE_SUFFIX 环境变量（仅开发/QA），数据目录隔离为 %APPDATA%\Banji-qa-&lt;suffix&gt;，
+    /// 避免并行测试实例与用户正在运行的班机互相覆盖设置/花名册。
+    /// </summary>
     public static string Root
     {
         get
         {
             if (string.IsNullOrEmpty(_root))
             {
-                _root = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                    AppId);
+                var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+                var suffix = Environment.GetEnvironmentVariable("BANJI_INSTANCE_SUFFIX");
+                var folder = AppId;
+                if (!string.IsNullOrWhiteSpace(suffix))
+                {
+                    var safe = new string(suffix.Where(char.IsLetterOrDigit).ToArray());
+                    if (safe.Length == 0) safe = "qa";
+                    folder = $"{AppId}-qa-{safe}";
+                }
+                _root = Path.Combine(appData, folder);
                 Directory.CreateDirectory(_root);
             }
             return _root;
