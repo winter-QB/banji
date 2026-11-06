@@ -143,7 +143,37 @@ public partial class App : Application
                 break;
             case "dismiss-notices":
                 svc.Notices.DismissAll();
-                Log.Info("QA：已关闭所有全屏提示");
+                Log.Info("QA：已关闭所有提醒（全屏+气泡）");
+                break;
+            case "collapse-pet":
+                svc.PetWindow?.CollapseToEdge();
+                Log.Info("QA：宠物已收进侧边");
+                break;
+            case "expand-pet":
+                svc.PetWindow?.ExpandFromEdge();
+                Log.Info("QA：宠物已展开");
+                break;
+            case "fold-timetable":
+                svc.PetWindow?.FoldTimetable();
+                Log.Info("QA：课表已折叠");
+                break;
+            case "unfold-timetable":
+                svc.PetWindow?.UnfoldTimetable();
+                Log.Info("QA：课表已展开");
+                break;
+            case "toast":
+                // QA：--cmd toast "标题" "内容"（测试气泡提醒）
+                if (args.Length > 1)
+                {
+                    svc.Notices.ShowToast(new NoticeToast
+                    {
+                        Title = args[1],
+                        Message = args.Length > 2 ? string.Join(' ', args[2..]) : "",
+                        Kind = NoticeToastKind.Generic,
+                        HoldMilliseconds = svc.Settings.Current.NoticeBubbleHoldSeconds * 1000
+                    });
+                    Log.Info("QA：已发送气泡提醒");
+                }
                 break;
             case "chat":
                 svc.ShowChatWindow();
@@ -252,22 +282,31 @@ public partial class App : Application
                 break;
             case "set":
                 // QA：--cmd set petscale 1.6 / panelscale 0.8 / panelx 80 / panely -40 / uiscale 1.2
+                //     --cmd set hidepet 1 / petidle 10 / tableidle 10 / noticehold 7
                 if (args.Length > 2 && double.TryParse(args[2], System.Globalization.NumberStyles.Float,
                         System.Globalization.CultureInfo.InvariantCulture, out var settingValue))
                 {
                     var key = args[1].ToLowerInvariant();
-                    svc.Settings.Update(x =>
+                    AppServices.RunOnUi(() =>
                     {
-                        switch (key)
+                        svc.Settings.Update(x =>
                         {
-                            case "petscale": x.PetScale = settingValue; break;
-                            case "panelscale": x.PanelScale = settingValue; break;
-                            case "panelx": x.PanelOffsetX = settingValue; break;
-                            case "panely": x.PanelOffsetY = settingValue; break;
-                            case "uiscale": x.UiScale = settingValue; break;
-                        }
+                            switch (key)
+                            {
+                                case "petscale": x.PetScale = settingValue; break;
+                                case "panelscale": x.PanelScale = settingValue; break;
+                                case "panelx": x.PanelOffsetX = settingValue; break;
+                                case "panely": x.PanelOffsetY = settingValue; break;
+                                case "uiscale": x.UiScale = settingValue; break;
+                                case "hidepet": x.HidePet = settingValue > 0.5; break;
+                                case "hidetable": x.ShowTimetablePanel = settingValue <= 0.5; break;
+                                case "petidle": x.PetIdleCollapseMinutes = (int)settingValue; break;
+                                case "tableidle": x.TimetableIdleFoldMinutes = (int)settingValue; break;
+                                case "noticehold": x.NoticeBubbleHoldSeconds = (int)settingValue; break;
+                            }
+                        });
+                        svc.Clock.Refresh();
                     });
-                    svc.Clock.Refresh();
                     Log.Info($"QA：设置 {key} = {settingValue}");
                 }
                 break;

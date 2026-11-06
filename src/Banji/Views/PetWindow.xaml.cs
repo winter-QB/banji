@@ -67,6 +67,16 @@ public partial class PetWindow : Window
     private bool _applyingLayout;
     private int _quipRequestId;
 
+    // v1.3.0：提醒气泡 / 右击菜单 / 隐藏弧线 / 空闲自动收起 / 课表折叠
+    private readonly NoticeBubbleWindow _noticeBubble;
+    private readonly IdleAutoHideLogic _idle;
+    private readonly DispatcherTimer _idleTimer;
+    private bool _petCollapsedToEdge;
+    private bool _timetableFolded;
+    private double _collapsedCenterY;
+    private bool _lastHidePet;
+    private string _foldedSignature = "";
+
     public PetWindow()
     {
         InitializeComponent();
@@ -80,14 +90,26 @@ public partial class PetWindow : Window
         Opacity = 0;
 
         _bubble = new BubbleWindow();
+        _noticeBubble = new NoticeBubbleWindow();
+        _idle = new IdleAutoHideLogic(DateTime.Now);
 
         _topmostTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(6) };
         _topmostTimer.Tick += (_, _) => KeepOnTop();
+
+        _idleTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(5) };
+        _idleTimer.Tick += (_, _) => EvaluateIdleAutoHide();
 
         Pet.MouseLeftButtonDown += OnPetMouseLeftButtonDown;
         Pet.MouseMove += OnPetMouseMove;
         Pet.MouseLeftButtonUp += OnPetMouseUp;
         Pet.LostMouseCapture += (_, _) => _dragging = false;
+        Pet.MouseRightButtonUp += OnPetRightButtonUp;
+        Pet.MouseEnter += (_, _) => TouchPetActivity();
+        Pet.MouseMove += (_, _) => TouchPetActivity();
+
+        PanelHost.AddHandler(MouseRightButtonUpEvent, new MouseButtonEventHandler(OnPanelRightButtonUp), true);
+        PanelHost.MouseMove += (_, _) => TouchTimetableActivity();
+        FunctionHost.AddHandler(MouseRightButtonUpEvent, new MouseButtonEventHandler(OnFunctionRightButtonUp), true);
 
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
@@ -150,6 +172,304 @@ public partial class PetWindow : Window
         }
     }
 
+    /// <summary>v1.3.0：提醒气泡的锚点矩形（宠物收起/隐藏时用右侧弧线）。</summary>
+    public Rect GetNoticeAnchorRect()
+    {
+        try
+        {
+            if (IsPetHiddenOrCollapsed)
+            {
+                var topLeft = EdgeArcHost.TranslatePoint(new Point(0, 0), this);
+                var bottomRight = EdgeArcHost.TranslatePoint(new Point(EdgeArcHost.ActualWidth, EdgeArcHost.ActualHeight), this);
+                return new Rect(Left + topLeft.X, Top + topLeft.Y,
+                    Math.Max(1, bottomRight.X - topLeft.X), Math.Max(1, bottomRight.Y - topLeft.Y));
+            }
+            return GetPetBodyRect();
+        }
+        catch
+        {
+            return new Rect(Left, Top, Math.Max(1, ActualWidth), Math.Max(1, ActualHeight));
+        }
+    }
+
+    /// <summary>宠物是否处于隐藏/收起成弧线的状态。</summary>
+    public bool IsPetHiddenOrCollapsed => _petCollapsedToEdge || Settings.HidePet;
+
+    /// <summary>课表是否处于折叠态。</summary>
+    public bool IsTimetableFolded => _timetableFolded;
+
+    // =========================================================================
+    // v1.3.0 QA 入口（Lead 的 --cmd collapse-pet/expand-pet/fold-timetable/unfold-timetable）
+    // =========================================================================
+
+    /// <summary>收进屏幕右侧，只留一道粗弧线（宠物+功能区+互动气泡隐藏）。</summary>
+    public void CollapseToEdge()
+    {
+        try
+        {
+            if (_petCollapsedToEdge) return;
+            var body = GetPetBodyRect();
+            if (body.Height > 1) _collapsedCenterY = body.Top + body.Height * 0.5;
+            _petCollapsedToEdge = true;
+            _idle.MarkPetCollapsed();
+            CloseMenuIfOpen(false);
+            try { if (_bubble.IsShowing) _bubble.Hide(); } catch { /* ignore */ }
+            ApplyLayout();
+            AnimateEdgeArcIn();
+            Log.Info("宠物已自动收进屏幕侧边（弧线态）");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("收起宠物失败", ex);
+        }
+    }
+
+    /// <summary>从侧边弧线展开恢复宠物。</summary>
+    public void ExpandFromEdge()
+    {
+        try
+        {
+            if (!_petCollapsedToEdge && !Settings.HidePet)
+            {
+                _idle.TouchPet(DateTime.Now);
+                return;
+            }
+            _petCollapsedToEdge = false;
+            _idle.MarkPetExpanded(DateTime.Now);
+            if (Settings.HidePet) SettingsService.Update(s => s.HidePet = false);
+            ApplyLayout();
+            AnimatePetIn();
+            Log.Info("宠物已从屏幕侧边展开");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("展开宠物失败", ex);
+        }
+    }
+
+    /// <summary>课表进入折叠态（只显示下节课时间+科目；上课中带下课倒计时）。</summary>
+    public void FoldTimetable()
+    {
+        try
+        {
+            if (_timetableFolded) return;
+            _timetableFolded = true;
+            _idle.MarkTimetableFolded();
+            RefreshFoldedCard(force: true);
+            ApplyLayout();
+            Log.Info("课表已自动进入折叠态");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("折叠课表失败", ex);
+        }
+    }
+
+    /// <summary>展开课表（恢复完整课表+常驻信息）。</summary>
+    public void UnfoldTimetable()
+    {
+        try
+        {
+            if (!_timetableFolded)
+            {
+                _idle.TouchTimetable(DateTime.Now);
+                return;
+            }
+            _timetableFolded = false;
+            _idle.MarkTimetableUnfolded(DateTime.Now);
+            RefreshFoldedCard(force: true);
+            ApplyLayout();
+            Log.Info("课表已展开");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("展开课表失败", ex);
+        }
+    }
+
+    // =========================================================================
+    // v1.3.0 空闲自动收起 / 课表自动折叠
+    // =========================================================================
+
+    private void TouchPetActivity()
+    {
+        try { _idle.TouchPet(DateTime.Now); } catch { /* ignore */ }
+    }
+
+    private void TouchTimetableActivity()
+    {
+        try { _idle.TouchTimetable(DateTime.Now); } catch { /* ignore */ }
+    }
+
+    private void TouchAllActivity()
+    {
+        try { _idle.TouchAll(DateTime.Now); } catch { /* ignore */ }
+    }
+
+    private void EvaluateIdleAutoHide()
+    {
+        if (!_initialized) return;
+        try
+        {
+            var settings = Settings;
+            if (_openMenu is { IsVisible: true } || _bubble.IsShowing || _noticeBubble.IsShowing)
+            {
+                _idle.TouchAll(DateTime.Now);
+                return;
+            }
+
+            var action = _idle.Evaluate(DateTime.Now, settings.PetIdleCollapseMinutes, settings.TimetableIdleFoldMinutes);
+            switch (action)
+            {
+                case IdleHideAction.CollapsePet:
+                    if (settings.HidePet || _petCollapsedToEdge) _idle.MarkPetCollapsed();
+                    else CollapseToEdge();
+                    break;
+                case IdleHideAction.FoldTimetable:
+                    if (!settings.ShowTimetablePanel) _idle.MarkTimetableFolded();
+                    else FoldTimetable();
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("空闲自动收起判定失败", ex);
+        }
+    }
+
+    // =========================================================================
+    // v1.3.0 右击菜单 / 弧线交互 / 折叠卡片交互
+    // =========================================================================
+
+    private void OnPetRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        TouchAllActivity();
+        OpenMenuNearPet();
+    }
+
+    private void OnPanelRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        TouchAllActivity();
+        OpenMenuNearPet();
+    }
+
+    private void OnFunctionRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        TouchAllActivity();
+        OpenMenuNearPet();
+    }
+
+    /// <summary>右击宠物/功能区/课表：在宠物附近打开同一个 MenuFlyout。</summary>
+    private void OpenMenuNearPet()
+    {
+        try
+        {
+            if (_openMenu is { IsVisible: true })
+            {
+                CloseMenuIfOpen(true);
+                return;
+            }
+            var anchorRect = IsPetHiddenOrCollapsed ? GetNoticeAnchorRect() : GetPetBodyRect();
+            var flyout = AppServices.Current.ShowMenuFlyout();
+            _openMenu = flyout;
+            flyout.Closed += (_, _) =>
+            {
+                if (ReferenceEquals(_openMenu, flyout)) _openMenu = null;
+            };
+            flyout.PlaceNear(new Point(anchorRect.Left + anchorRect.Width * 0.5, anchorRect.Top));
+            _idle.TouchAll(DateTime.Now);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("打开右键菜单失败", ex);
+        }
+    }
+
+    private void OnEdgeArcLeftClick(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        ExpandFromEdge();
+        _idle.TouchAll(DateTime.Now);
+    }
+
+    private void OnEdgeArcRightClick(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        TouchAllActivity();
+        OpenMenuNearPet();
+    }
+
+    private void OnFoldedCardClick(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        UnfoldTimetable();
+    }
+
+    // =========================================================================
+    // v1.3.0 提醒气泡（上课/下课/普通提醒统一走气泡；计时器超时仍全屏）
+    // =========================================================================
+
+    private void OnToastRequested(object? sender, NoticeToast toast)
+    {
+        try
+        {
+            _idle.TouchAll(DateTime.Now);
+            _noticeBubble.ShowToast(toast);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("显示提醒气泡失败", ex);
+        }
+    }
+
+    private void OnToastDismissed(object? sender, EventArgs e)
+    {
+        try
+        {
+            _noticeBubble.Dismiss();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"关闭提醒气泡失败：{ex.Message}");
+        }
+    }
+
+    private void AnimateEdgeArcIn()
+    {
+        try
+        {
+            EdgeArcHost.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(1, TimeSpan.FromMilliseconds(220))
+                {
+                    From = 0,
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+        }
+        catch
+        {
+            // 动画失败不影响功能
+        }
+    }
+
+    private void AnimatePetIn()
+    {
+        try
+        {
+            PetHost.BeginAnimation(OpacityProperty,
+                new DoubleAnimation(1, TimeSpan.FromMilliseconds(200))
+                {
+                    From = 0,
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+        }
+        catch
+        {
+            // 动画失败不影响功能
+        }
+    }
     // =========================================================================
     // QA / 自动化入口（Lead 的 --cmd quip [text] / --cmd pat 会调用）
     // =========================================================================
@@ -286,26 +606,68 @@ public partial class PetWindow : Window
             RefreshAccentBrushes(settings);
             Pet.ApplySettings(settings.Pet, settings.PetBlinkEnabled, settings.PetBobEnabled);
             Topmost = settings.AlwaysOnTop;
-            TimetableSection.Visibility = settings.ShowTimetablePanel ? Visibility.Visible : Visibility.Collapsed;
             UpdateTriangleStates();
 
             LoadPreviewTime();
             MigrateLegacyUiScale();
             UpdateLayout();
             InitializePosition();
+
+            // v1.3.0：恢复隐藏/折叠状态并启动空闲自动收起计时
+            _lastHidePet = settings.HidePet;
+            if (settings.HidePet)
+            {
+                var petH = 134 * Math.Clamp(settings.PetScale, 0.2, 5.0);
+                _collapsedCenterY = SystemParameters.WorkArea.Bottom - _bottomMargin - petH * 0.5;
+                _idle.MarkPetCollapsed();
+            }
+            if (!settings.ShowTimetablePanel) _idle.MarkTimetableFolded();
+
             ApplyLayout();
             _snapshot = GetLiveSnapshot();
             RefreshFromSnapshot(force: true);
             UpdatePanelSizeIfNeeded();
             SubscribeServices();
 
+            _idleTimer.Start();
             _topmostTimer.Start();
+            ApplyQaStateFromEnvironment();
             AnimateWindowIn();
             KeepOnTop();
         }
         catch (Exception ex)
         {
             Log.Error("初始化宠物窗口失败", ex);
+        }
+    }
+
+    /// <summary>
+    /// 开发/截图 QA：BANJI_PET_QA_STATE=collapsed|expanded|folded|unfolded（可逗号组合）
+    /// 直接调用同名 public 方法切换状态，供隔离实例截图使用（正式运行不设置该环境变量即可）。
+    /// </summary>
+    private void ApplyQaStateFromEnvironment()
+    {
+        try
+        {
+            var raw = Environment.GetEnvironmentVariable("BANJI_PET_QA_STATE");
+            if (string.IsNullOrWhiteSpace(raw)) return;
+            foreach (var token in raw.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                switch (token.Trim().ToLowerInvariant())
+                {
+                    case "collapsed": CollapseToEdge(); break;
+                    case "expanded": ExpandFromEdge(); break;
+                    case "folded": FoldTimetable(); break;
+                    case "unfolded": UnfoldTimetable(); break;
+                    default:
+                        Log.Warn($"未知的 BANJI_PET_QA_STATE 项：{token}");
+                        break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"应用 QA 状态失败：{ex.Message}");
         }
     }
 
@@ -326,6 +688,8 @@ public partial class PetWindow : Window
         services.Picker.Picked += OnPicked;
         services.Timers.Tick += OnTimerTick;
         services.Timers.StateChanged += OnTimerStateChanged;
+        services.Notices.ToastRequested += OnToastRequested;
+        services.Notices.ToastDismissed += OnToastDismissed;
         SystemParameters.StaticPropertyChanged += OnSystemParametersChanged;
     }
 
@@ -387,6 +751,7 @@ public partial class PetWindow : Window
     {
         if (_applyingLayout || !_initialized) return;
         _bubble.RepositionAndRefresh();
+        _noticeBubble.RepositionToPet();
     }
 
     private void OnSystemParametersChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -405,6 +770,7 @@ public partial class PetWindow : Window
     /// <summary>
     /// v1.2.0 核心布局：宠物群（PetScale）与课表/信息面板（PanelScale + PanelOffset）分别缩放/定位，
     /// 窗口尺寸取两者的并集（不裁切）；宠物群右下角锚定工作区右下 margin 处，并把窗口位置收进屏幕。
+    /// v1.3.0：宠物可隐藏/收起成右侧弧线（弧线固定尺寸）；课表可折叠成简洁卡片。
     /// </summary>
     private void ApplyLayout()
     {
@@ -420,46 +786,91 @@ public partial class PetWindow : Window
             PanelScaleTransform.ScaleX = panelScale;
             PanelScaleTransform.ScaleY = panelScale;
 
-            // 面板自然尺寸（未缩放）
-            PanelStack.Measure(new Size(196, double.PositiveInfinity));
-            var panelDesignHeight = Math.Max(40, PanelStack.DesiredSize.Height);
+            // 宠物：正常展示宠物群；隐藏/收起时换成固定尺寸的右侧弧线
+            var petHidden = _petCollapsedToEdge || settings.HidePet;
+            PetHost.Visibility = petHidden ? Visibility.Collapsed : Visibility.Visible;
+            EdgeArcHost.Visibility = petHidden ? Visibility.Visible : Visibility.Collapsed;
+
+            // 面板：折叠态只显示“下节卡片”；隐藏课表时只保留常驻信息
+            var showFoldedCard = _timetableFolded && settings.ShowTimetablePanel;
+            PanelHost.Visibility = Visibility.Visible;
+            FoldedCard.Visibility = showFoldedCard ? Visibility.Visible : Visibility.Collapsed;
+            PanelStack.Visibility = showFoldedCard ? Visibility.Collapsed : Visibility.Visible;
+            TimetableSection.Visibility = settings.ShowTimetablePanel && !showFoldedCard
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
+            double panelDesignWidth;
+            double panelDesignHeight;
+            if (showFoldedCard)
+            {
+                FoldedCard.Measure(new Size(196, double.PositiveInfinity));
+                panelDesignWidth = 196;
+                panelDesignHeight = Math.Max(40, FoldedCard.DesiredSize.Height);
+            }
+            else
+            {
+                PanelStack.Measure(new Size(196, double.PositiveInfinity));
+                panelDesignWidth = 196;
+                panelDesignHeight = Math.Max(40, PanelStack.DesiredSize.Height);
+            }
             _lastPanelDesignHeight = panelDesignHeight;
-            var panelW = 196 * panelScale;
+            var panelW = panelDesignWidth * panelScale;
             var panelH = panelDesignHeight * panelScale;
 
-            // 宠物群设计尺寸（功能区展开时向左多出 170 宽）
-            var petClusterDesignW = _functionsExpanded ? 282 : 112;
-            PetHost.Width = petClusterDesignW;
-            PetHost.Height = 134;
-            var petW = petClusterDesignW * petScale;
-            var petH = 134 * petScale;
+            // 宠物区尺寸：正常是宠物群（随 PetScale）；收起/隐藏时是固定尺寸的侧边弧线
+            double petBoxW;
+            double petBoxH;
+            if (petHidden)
+            {
+                petBoxW = 26;
+                petBoxH = 130;
+            }
+            else
+            {
+                var petClusterDesignW = _functionsExpanded ? 282 : 112;
+                PetHost.Width = petClusterDesignW;
+                PetHost.Height = 134;
+                petBoxW = petClusterDesignW * petScale;
+                petBoxH = 134 * petScale;
+            }
 
-            // 面板默认位置：右缘与宠物群右缘对齐、底边在宠物群上方 8px；再叠加用户偏移
+            // 面板默认位置：右缘与宠物区右缘对齐、底边在宠物区上方 8px；再叠加用户偏移
             var offsetX = settings.PanelOffsetX;
             var offsetY = settings.PanelOffsetY;
             const double gap = 8;
             var panelRight = offsetX;
-            var panelBottom = -petH - gap + offsetY;
+            var panelBottom = -petBoxH - gap + offsetY;
             var panelLeft = panelRight - panelW;
             var panelTop = panelBottom - panelH;
 
-            // 局部坐标：宠物群右下角为 (0,0)，向上/向左为负
-            var minX = Math.Min(-petW, panelLeft);
+            // 局部坐标：宠物区右下角为 (0,0)，向上/向左为负
+            var minX = Math.Min(-petBoxW, panelLeft);
             var maxX = Math.Max(0, panelRight);
-            var minY = Math.Min(-petH, panelTop);
+            var minY = Math.Min(-petBoxH, panelTop);
             var maxY = 0;
 
             const double margin = 24;
-            var windowW = Math.Max(140, (maxX - minX) + margin * 2);
-            var windowH = Math.Max(180, (maxY - minY) + margin * 2);
+            var windowW = Math.Max(96, (maxX - minX) + margin * 2);
+            var windowH = Math.Max(120, (maxY - minY) + margin * 2);
 
             var petRightInWindow = margin + (0 - minX);
             var petBottomInWindow = margin + (0 - minY);
             _petRightInWindow = petRightInWindow;
             _petBottomInWindow = petBottomInWindow;
 
-            Canvas.SetLeft(PetHost, Math.Round(petRightInWindow - petW));
-            Canvas.SetTop(PetHost, Math.Round(petBottomInWindow - petH));
+            if (petHidden)
+            {
+                EdgeArcHost.Width = petBoxW;
+                EdgeArcHost.Height = petBoxH;
+                Canvas.SetLeft(EdgeArcHost, Math.Round(petRightInWindow - petBoxW));
+                Canvas.SetTop(EdgeArcHost, Math.Round(petBottomInWindow - petBoxH));
+            }
+            else
+            {
+                Canvas.SetLeft(PetHost, Math.Round(petRightInWindow - petBoxW));
+                Canvas.SetTop(PetHost, Math.Round(petBottomInWindow - petBoxH));
+            }
             Canvas.SetLeft(PanelHost, Math.Round(margin + (panelLeft - minX)));
             Canvas.SetTop(PanelHost, Math.Round(margin + (panelTop - minY)));
 
@@ -467,10 +878,17 @@ public partial class PetWindow : Window
             if (Math.Abs(Height - windowH) > 0.5) Height = windowH;
 
             var work = SystemParameters.WorkArea;
-            var anchorX = work.Right - _rightMargin;
-            var anchorY = work.Bottom - _bottomMargin;
-            var desiredLeft = anchorX - petRightInWindow;
-            var desiredTop = anchorY - petBottomInWindow;
+            var desiredLeft = (work.Right - _rightMargin) - petRightInWindow;
+            double desiredTop;
+            if (petHidden && _collapsedCenterY > 0)
+            {
+                // 收起状态：弧线在屏幕右侧竖向定在收起前的宠物中心位置
+                desiredTop = _collapsedCenterY - (petBottomInWindow - petBoxH * 0.5);
+            }
+            else
+            {
+                desiredTop = (work.Bottom - _bottomMargin) - petBottomInWindow;
+            }
             var left = windowW <= work.Width
                 ? Math.Clamp(desiredLeft, work.Left, work.Right - windowW)
                 : work.Right - windowW;
@@ -489,16 +907,26 @@ public partial class PetWindow : Window
             _applyingLayout = false;
         }
         _bubble.RepositionAndRefresh();
+        _noticeBubble.RepositionToPet();
     }
 
-    /// <summary>课表面板内容高度变化（展开/折叠、D-Day 行出现等）时重新计算窗口尺寸，避免裁切。</summary>
+    /// <summary>课表面板内容高度变化（展开/折叠、D-Day 行出现、切换折叠卡片等）时重新计算窗口尺寸，避免裁切。</summary>
     private void UpdatePanelSizeIfNeeded()
     {
         if (!_initialized) return;
         try
         {
-            PanelStack.Measure(new Size(196, double.PositiveInfinity));
-            var height = PanelStack.DesiredSize.Height;
+            double height;
+            if (_timetableFolded && Settings.ShowTimetablePanel)
+            {
+                FoldedCard.Measure(new Size(196, double.PositiveInfinity));
+                height = FoldedCard.DesiredSize.Height;
+            }
+            else
+            {
+                PanelStack.Measure(new Size(196, double.PositiveInfinity));
+                height = PanelStack.DesiredSize.Height;
+            }
             if (Math.Abs(height - _lastPanelDesignHeight) > 0.5) ApplyLayout();
         }
         catch (Exception ex)
@@ -507,6 +935,29 @@ public partial class PetWindow : Window
         }
     }
 
+    /// <summary>刷新折叠态的“下节卡片”文案（上课中带下课倒计时）。</summary>
+    private void RefreshFoldedCard(bool force)
+    {
+        try
+        {
+            var now = _previewTime ?? DateTime.Now;
+            var info = FoldedTimetableFormatter.Fold(_snapshot, now);
+            var signature = $"{info.HasData}|{info.Label}|{info.MainText}|{info.Secondary}";
+            if (!force && signature == _foldedSignature) return;
+            _foldedSignature = signature;
+
+            FoldedLabel.Text = string.IsNullOrEmpty(info.Label) ? "今天" : info.Label;
+            FoldedMain.Text = info.MainText;
+            FoldedSecondary.Text = info.Secondary ?? "";
+            FoldedSecondary.Visibility = string.IsNullOrEmpty(info.Secondary)
+                ? Visibility.Collapsed
+                : Visibility.Visible;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"刷新课表折叠态失败：{ex.Message}");
+        }
+    }
     /// <summary>旧版 UiScale 兼容：升级到 v1.2.0 后把整体缩放拆到 PetScale / PanelScale。</summary>
     private void MigrateLegacyUiScale()
     {
@@ -828,8 +1279,29 @@ public partial class PetWindow : Window
             var settings = Settings;
             if (Topmost != settings.AlwaysOnTop) Topmost = settings.AlwaysOnTop;
 
-            var target = settings.ShowTimetablePanel ? Visibility.Visible : Visibility.Collapsed;
-            if (TimetableSection.Visibility != target) TimetableSection.Visibility = target;
+            // v1.3.0：隐藏宠物 / 隐藏课表 / 空闲分钟数变化时同步空闲状态机
+            if (settings.HidePet != _lastHidePet)
+            {
+                _lastHidePet = settings.HidePet;
+                if (settings.HidePet)
+                {
+                    var petH = 134 * Math.Clamp(settings.PetScale, 0.2, 5.0);
+                    _collapsedCenterY = SystemParameters.WorkArea.Bottom - _bottomMargin - petH * 0.5;
+                    _idle.MarkPetCollapsed();
+                    try { if (_bubble.IsShowing) _bubble.Hide(); } catch { /* ignore */ }
+                }
+                else if (!_petCollapsedToEdge)
+                {
+                    _idle.MarkPetExpanded(DateTime.Now);
+                }
+            }
+            else if (!settings.HidePet && !_petCollapsedToEdge)
+            {
+                _idle.TouchPet(DateTime.Now);
+            }
+
+            if (!settings.ShowTimetablePanel) _idle.MarkTimetableFolded();
+            else if (!_timetableFolded) _idle.TouchTimetable(DateTime.Now);
 
             var signature = BuildSettingsSignature(settings);
             if (signature != _settingsSignature)
@@ -883,7 +1355,7 @@ public partial class PetWindow : Window
             var hasOtherTopmost = Application.Current?.Windows
                 .OfType<Window>()
                 .Any(w => w != this && w.IsVisible && w.Topmost &&
-                          w is not BubbleWindow && w is not MenuFlyout) == true;
+                          w is not BubbleWindow && w is not MenuFlyout && w is not NoticeBubbleWindow) == true;
             if (hasOtherTopmost) return;
             NativeMethods.ReassertTopmost(new WindowInteropHelper(this).Handle);
         }
@@ -902,6 +1374,7 @@ public partial class PetWindow : Window
         var overrun = ResolveOverrunElapsed();
         RefreshInfo(_snapshot, overrun);
         RefreshTimetable(_snapshot, force);
+        RefreshFoldedCard(force);
         UpdateTriangleStates();
         UpdatePanelSizeIfNeeded();
     }
@@ -1113,6 +1586,8 @@ public partial class PetWindow : Window
             services.Picker.Picked -= OnPicked;
             services.Timers.Tick -= OnTimerTick;
             services.Timers.StateChanged -= OnTimerStateChanged;
+            services.Notices.ToastRequested -= OnToastRequested;
+            services.Notices.ToastDismissed -= OnToastDismissed;
         }
         catch (Exception ex)
         {
@@ -1121,8 +1596,10 @@ public partial class PetWindow : Window
 
         SystemParameters.StaticPropertyChanged -= OnSystemParametersChanged;
         _topmostTimer.Stop();
+        _idleTimer.Stop();
         try { Pet.StopAnimations(); } catch { /* ignore */ }
         try { _bubble.CloseCleanup(); } catch { /* ignore */ }
+        try { _noticeBubble.CloseCleanup(); } catch { /* ignore */ }
         try { CloseMenuIfOpen(false); } catch { /* ignore */ }
     }
 
@@ -1153,6 +1630,12 @@ public partial class PetWindow : Window
         catch { return fallback; }
     }
 }
+
+
+
+
+
+
 
 
 

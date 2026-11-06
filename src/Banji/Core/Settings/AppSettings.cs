@@ -45,6 +45,16 @@ public sealed class AppSettings
     public double PanelOffsetX { get; set; } = 0;
     /// <summary>课表/信息面板相对默认位置的纵向偏移（DIP，-800~800；正=向下）。</summary>
     public double PanelOffsetY { get; set; } = 0;
+
+    // ---------------- v1.3.0：隐藏 / 自动收起 / 气泡提醒 ----------------
+    /// <summary>手动隐藏宠物本体（右侧只保留可点击的粗弧线，点一下恢复）。</summary>
+    public bool HidePet { get; set; } = false;
+    /// <summary>宠物无动态多少分钟后自动收进屏幕侧边变成粗弧线；0 = 关闭。</summary>
+    public int PetIdleCollapseMinutes { get; set; } = 10;
+    /// <summary>课表无操作多少分钟后自动进入折叠态；0 = 关闭。</summary>
+    public int TimetableIdleFoldMinutes { get; set; } = 10;
+    /// <summary>非全屏气泡提醒保持秒数（默认 7）。</summary>
+    public int NoticeBubbleHoldSeconds { get; set; } = 7;
     /// <summary>宠物距屏幕右边缘的偏移（px，缩放前基准单位）。</summary>
     public double PetRightMargin { get; set; } = 0;
     /// <summary>宠物距工作区底部的偏移（px）。</summary>
@@ -95,6 +105,9 @@ public sealed class AppSettings
         PanelScale = Math.Clamp(PanelScale, 0.4, 4.0);
         PanelOffsetX = Math.Clamp(PanelOffsetX, -800, 800);
         PanelOffsetY = Math.Clamp(PanelOffsetY, -800, 800);
+        PetIdleCollapseMinutes = Math.Clamp(PetIdleCollapseMinutes, 0, 240);
+        TimetableIdleFoldMinutes = Math.Clamp(TimetableIdleFoldMinutes, 0, 240);
+        NoticeBubbleHoldSeconds = Math.Clamp(NoticeBubbleHoldSeconds, 2, 30);
         ClassDurationMinutes = Math.Clamp(ClassDurationMinutes, 1, 600);
         BellOffsetSeconds = Math.Clamp(BellOffsetSeconds, -60, 60);
         NoticeDurationSeconds = Math.Clamp(NoticeDurationSeconds, 1, 60);

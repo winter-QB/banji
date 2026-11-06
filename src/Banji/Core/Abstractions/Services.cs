@@ -129,8 +129,36 @@ public interface IAudioService
 
 public interface INotificationService
 {
+    /// <summary>非全屏气泡提醒请求（v1.3：上课/下课/其它提醒统一走气泡，计时器除外）。</summary>
+    event EventHandler<NoticeToast>? ToastRequested;
+
+    /// <summary>要求立即关闭当前气泡提醒（DismissAll 时触发）。</summary>
+    event EventHandler? ToastDismissed;
+
+    /// <summary>显示一个宠物气泡提醒；PetWindow 订阅 ToastRequested 后弹出气泡窗。</summary>
+    void ShowToast(NoticeToast toast);
+
     void ShowClassStart(ClassTransitionEventArgs transition);
     void ShowClassEnd(ClassTransitionEventArgs transition);
     void ShowTimerTimeout();
     void DismissAll();
+}
+
+/// <summary>气泡提醒种类（v1.3.0）。</summary>
+public enum NoticeToastKind
+{
+    Generic = 0,
+    ClassStart = 1,
+    ClassEnd = 2,
+    Preview = 3
+}
+
+/// <summary>宠物气泡提醒内容（v1.3.0）：灵动冒出、轻柔回弹、定住 N 秒、收回。</summary>
+public sealed class NoticeToast
+{
+    public string Title { get; init; } = "";
+    public string Message { get; init; } = "";
+    public NoticeToastKind Kind { get; init; } = NoticeToastKind.Generic;
+    /// <summary>保持毫秒数（默认取设置 NoticeBubbleHoldSeconds*1000）。</summary>
+    public int HoldMilliseconds { get; init; } = 7000;
 }

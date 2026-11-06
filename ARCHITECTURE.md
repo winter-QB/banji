@@ -231,3 +231,29 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
 | `packaging` | v1.2.0 打包、README/RELEASE_NOTES 更新、模型下载说明、安装器自测 |
 
 窗口统一保留无参构造；禁止修改 `Core/Models/**`、`Core/Settings/**`、`Core/Abstractions/**`、`Core/Boot/AppServices.cs`、`App.xaml*`、`Resources/**`、`Banji.csproj`、`Banji.sln`（需改先找 Lead）。
+
+## 12. 第三轮修改契约（v1.3.0，2026-11-06 晚）
+
+**用户反馈**：上课/下课全屏紫底太炸眼、挡住老师 PPT；除计时器外所有提醒改成**气泡**（灵动冒出→轻柔回弹→定住 7 秒→收回）；**右击宠物**直接调出右侧小箭头菜单；宠物与课表可**分别隐藏**；宠物无动态 10 分钟后**自动收进屏幕侧边变成一道粗弧线**（类似手机悬浮球）；课表无操作 10 分钟自动进入**折叠态**（只显示下节课时间和下节课内容）。
+**版本**：v1.3.0（新功能 → MINOR）。
+
+### 12.1 共享契约（Lead）
+- `AppSettings` 新增：`HidePet`（手动隐藏宠物本体，保留侧边弧）、`PetIdleCollapseMinutes`（默认 10，0=关闭）、`TimetableIdleFoldMinutes`（默认 10，0=关闭）、`NoticeBubbleHoldSeconds`（默认 7）。隐藏课表沿用 `ShowTimetablePanel=false`。
+- `INotificationService` 新增：
+  - `event EventHandler<NoticeToast>? ToastRequested;`
+  - `void ShowToast(NoticeToast toast);`
+  - 新模型 `NoticeToast`（`Title`/`Message`/`Kind`/`HoldMilliseconds`）与 `NoticeToastKind{ClassStart,ClassEnd,Generic,Preview}`。
+  - `ShowClassStart/ShowClassEnd` 内部改为抛 `ToastRequested`（**不再开全屏窗**）；`ShowTimerTimeout` 仍用全屏（唯一全屏提醒）；`DismissAll` 同时关闭气泡。
+- 窗口气泡由 PetWindow 订阅 `ToastRequested` 并弹出 `NoticeBubbleWindow`（pet-ui 实现），无参窗口交给 PetWindow 持有；窗口 `Title="BanjiNotice"`（自动化探测用）。
+- 宠物窗新增 QA 方法（App.xaml.cs 命令对接）：`CollapseToEdge()`、`ExpandFromEdge()`、`FoldTimetable()`、`UnfoldTimetable()`；动画/状态放 pet-ui。
+- QA 命令：`--cmd collapse-pet`、`--cmd expand-pet`、`--cmd fold-timetable`、`--cmd unfold-timetable`；`--cmd set` 新增 `hidepet`、`petidle`、`tableidle`、`noticehold`。
+- 版本号：主程序 csproj = **1.3.0**；`vMAJOR.MINOR.PATCH` 规则不变。
+
+### 12.2 v1.3 文件作用域
+| 负责人 | 文件 |
+|---|---|
+| `pet-ui` | `Views/NoticeBubbleWindow.*`（新）、`Views/PetWindow.*`（订阅气泡/右击菜单/隐身弧/折叠课表/空闲计时）、`Views/MenuFlyout.*`（隐藏开关等）、`Controls/Pet/**`、`Core/Quips/**`（不改语义）、`Tests/PetUi*` |
+| `core-schedule` | `Core/Notices/NotificationService.cs`（改气泡事件）、`Views/FullscreenNoticeWindow.*`（只保留计时器用途）、`Tests/Notice*` |
+| `features-ui` | `Views/SettingsWindow.*`（提示预览改气泡、自动收起/折叠设置、隐藏开关）、`Tests/Settings*` |
+| `packaging` | v1.3.0 README/RELEASE_NOTES/构建/桌面发布夹 |
+禁止改共享文件（`AppSettings`、`Abstractions`、`Boot/AppServices`、`App.xaml*`、`Banji.csproj`、`Resources/**`、菜单以外别人的文件）；需要改先找 Lead。

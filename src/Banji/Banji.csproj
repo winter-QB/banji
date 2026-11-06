@@ -14,8 +14,8 @@
     <Description>班机 — 课堂管理桌面宠物</Description>
     <Company>Banji</Company>
     <Copyright>Copyright © 2026</Copyright>
-    <Version>1.2.0</Version>
-    <InformationalVersion>1.2.0</InformationalVersion>
+    <Version>1.3.0</Version>
+    <InformationalVersion>1.3.0</InformationalVersion>
     <ApplicationIcon>Assets\banji.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <SatelliteResourceLanguages>zh-Hans</SatelliteResourceLanguages>

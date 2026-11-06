@@ -8,13 +8,14 @@ using Banji.Views;
 namespace Banji.Core.Notices;
 
 /// <summary>
-/// 全屏提示服务：
+/// 提醒服务（v1.3.0）：
 /// <list type="bullet">
-///   <item>上课：<see cref="FullscreenNoticeWindow"/> 醒目背景 + 大字（自动/点击关闭）；</item>
-///   <item>下课：<see cref="FullscreenNoticeWindow"/> 透明纯文字（点击穿透，自动关闭）；</item>
-///   <item>计时器超时：直接集成 features-ui 的 <see cref="TimerTimeoutWindow"/>（全屏模糊 + 关闭按钮 + 15 秒自动关）。</item>
+///   <item>上课 / 下课 / 大课间 / 放学：构造 <see cref="NoticeToast"/> 并触发
+///         <see cref="ToastRequested"/>，由 PetWindow 弹出宠物气泡（不再全屏遮挡老师 PPT）；</item>
+///   <item>计时器超时：唯一保留的全屏强提醒（features-ui 的 <see cref="TimerTimeoutWindow"/>，15 秒自动关）；</item>
+///   <item><see cref="DismissAll"/>：关闭全屏提醒并触发 <see cref="ToastDismissed"/> 让气泡收回。</item>
 /// </list>
-/// 所有窗口只覆盖主屏、置顶、不抢焦点、不进 Alt-Tab；<see cref="DismissAll"/> 立刻关闭全部提示。
+/// 气泡内容/保持时长由 <see cref="NoticeToastText"/> 纯函数生成（默认保持 7 秒）。
 /// </summary>
 public sealed class NotificationService : INotificationService
 {
@@ -26,6 +27,33 @@ public sealed class NotificationService : INotificationService
     {
     }
 
+    /// <summary>请求弹出宠物气泡（PetWindow 订阅；标题/正文/种类/保持毫秒数）。</summary>
+    public event EventHandler<NoticeToast>? ToastRequested;
+
+    /// <summary>要求立即收回当前气泡（DismissAll 时触发）。</summary>
+    public event EventHandler? ToastDismissed;
+
+    // =========================================================================
+    // 气泡提醒（v1.3.0）
+    // =========================================================================
+
+    public void ShowToast(NoticeToast toast)
+    {
+        if (toast is null) return;
+        AppServices.RunOnUi(() =>
+        {
+            try
+            {
+                RaiseToastRequested(toast);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("显示气泡提醒失败", ex);
+            }
+        });
+    }
+
+    /// <summary>上课提醒：改为宠物气泡（标题“上课”+ 科目与时间范围），不再开全屏窗。</summary>
     public void ShowClassStart(ClassTransitionEventArgs transition)
     {
         if (transition is null) return;
@@ -33,21 +61,18 @@ public sealed class NotificationService : INotificationService
         {
             try
             {
-                DismissAllInternal();
-                var settings = CurrentSettings();
-                var window = new FullscreenNoticeWindow();
-                window.ConfigureClassStart(transition, settings);
-                Track(window);
-                window.Show();
-                Log.Info($"显示全屏提示：上课提示（{transition.Current?.CourseDisplay ?? transition.Next?.CourseDisplay ?? "新的一节课"}，停留 {settings.NoticeDurationSeconds} 秒）");
+                var toast = BuildToast(transition);
+                DismissAllInternal(); // 先收回旧气泡/旧全屏，再弹新气泡
+                RaiseToastRequested(toast);
             }
             catch (Exception ex)
             {
-                Log.Error("显示上课全屏提示失败", ex);
+                Log.Error("显示上课气泡提醒失败", ex);
             }
         });
     }
 
+    /// <summary>下课提醒：改为宠物气泡（标题“下课/大课间/放学”+ 下一节信息），不再开全屏窗。</summary>
     public void ShowClassEnd(ClassTransitionEventArgs transition)
     {
         if (transition is null) return;
@@ -55,20 +80,39 @@ public sealed class NotificationService : INotificationService
         {
             try
             {
+                var toast = BuildToast(transition);
                 DismissAllInternal();
-                var settings = CurrentSettings();
-                var window = new FullscreenNoticeWindow();
-                window.ConfigureClassEnd(transition, settings);
-                Track(window);
-                window.Show();
-                Log.Info($"显示全屏提示：下课提示（停留 {settings.NoticeDurationSeconds} 秒）");
+                RaiseToastRequested(toast);
             }
             catch (Exception ex)
             {
-                Log.Error("显示下课全屏提示失败", ex);
+                Log.Error("显示下课气泡提醒失败", ex);
             }
         });
     }
+
+    private static NoticeToast BuildToast(ClassTransitionEventArgs transition)
+    {
+        var settings = CurrentSettings();
+        return NoticeToastText.ForTransition(transition, NoticeToastText.HoldMilliseconds(settings));
+    }
+
+    private void RaiseToastRequested(NoticeToast toast)
+    {
+        try
+        {
+            ToastRequested?.Invoke(this, toast);
+            Log.Info($"显示气泡提醒：{toast.Title}｜{toast.Message}（Kind={toast.Kind}，保持 {toast.HoldMilliseconds}ms）");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("气泡提醒事件处理失败", ex);
+        }
+    }
+
+    // =========================================================================
+    // 全屏提醒（仅计时器超时）
+    // =========================================================================
 
     public void ShowTimerTimeout()
     {
@@ -77,7 +121,7 @@ public sealed class NotificationService : INotificationService
             try
             {
                 DismissAllInternal();
-                // 计时器超时窗口由 features-ui 实现（截主屏 + BlurEffect + AcknowledgeExpiry）
+                // 计时器超时是全屏强提醒（需求明确保留）：features-ui 的 TimerTimeoutWindow（15 秒自动关）
                 var window = new TimerTimeoutWindow();
                 Track(window);
                 window.Closed += (_, _) =>
@@ -87,6 +131,7 @@ public sealed class NotificationService : INotificationService
                     catch (Exception ex) { Log.Error("超时提示关闭后复位计时器失败", ex); }
                 };
                 window.Show();
+                Log.Info("显示全屏提醒：计时器超时（15 秒自动关闭）");
             }
             catch (Exception ex)
             {
@@ -95,14 +140,14 @@ public sealed class NotificationService : INotificationService
         });
     }
 
+    // =========================================================================
+    // 关闭所有提醒
+    // =========================================================================
+
     public void DismissAll()
     {
         AppServices.RunOnUi(DismissAllInternal);
     }
-
-    // =========================================================================
-    // 内部
-    // =========================================================================
 
     private void Track(Window window)
     {
@@ -113,6 +158,7 @@ public sealed class NotificationService : INotificationService
         };
     }
 
+    /// <summary>关闭全屏提醒窗口，并通知气泡收回（ToastDismissed）。</summary>
     private void DismissAllInternal()
     {
         List<Window> snapshot;
@@ -124,8 +170,11 @@ public sealed class NotificationService : INotificationService
         foreach (var window in snapshot)
         {
             try { window.Close(); }
-            catch (Exception ex) { Log.Error("关闭全屏提示窗口失败", ex); }
+            catch (Exception ex) { Log.Error("关闭全屏提醒窗口失败", ex); }
         }
+
+        try { ToastDismissed?.Invoke(this, EventArgs.Empty); }
+        catch (Exception ex) { Log.Error("收回气泡提醒失败", ex); }
     }
 
     private static AppSettings CurrentSettings()
@@ -136,7 +185,7 @@ public sealed class NotificationService : INotificationService
         }
         catch (Exception ex)
         {
-            Log.Warn($"读取提示样式设置失败，使用默认值：{ex.Message}");
+            Log.Warn($"读取气泡提醒设置失败，使用默认值：{ex.Message}");
         }
         var defaults = new AppSettings();
         defaults.Normalize();

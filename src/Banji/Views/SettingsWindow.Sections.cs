@@ -47,7 +47,7 @@ public partial class SettingsWindow
     private FrameworkElement BuildClassSection()
     {
         var s = Settings.Current;
-        return SectionFrame("课堂", "课时长度、铃声误差与上下课全屏提示。",
+        return SectionFrame("课堂", "课时长度、铃声误差与上下课气泡提醒。",
             Card(
                 SliderRow("标准课时长度",
                     "抽签的公平约束窗口默认使用此长度；若在“抽签”分区开启“跟随当前课节”，则改用课表里这节课的真实时长（精确到秒）。",
@@ -60,13 +60,13 @@ public partial class SettingsWindow
                     v => Settings.Update(x => x.BellOffsetSeconds = (int)Math.Round(v)), 270)
             ),
             Card(
-                Row("上课提示", "上课时全屏显示醒目的“上课”提示（带背景）。",
+                Row("上课提示", "上课时在宠物上方弹出气泡轻提醒（不再全屏遮挡 PPT）。",
                     Toggle(s.ShowClassStartNotice, v => Settings.Update(x => x.ShowClassStartNotice = v))),
                 Divider(),
-                Row("下课提示", "下课时全屏显示文字提示，不遮挡点击。",
+                Row("下课提示", "下课时在宠物上方弹出气泡轻提醒（不再全屏遮挡 PPT）。",
                     Toggle(s.ShowClassEndNotice, v => Settings.Update(x => x.ShowClassEndNotice = v))),
                 Divider(),
-                SliderRow("提示停留秒数", "上课/下课全屏提示自动消失的时间。",
+                SliderRow("提示停留秒数（旧版兼容）", "旧版全屏提示的停留时间；v1.3 起上课/下课已改为气泡，气泡停留秒数请在“提醒与隐藏”分区调整。",
                     1, 30, s.NoticeDurationSeconds, 1, v => $"{(int)Math.Round(v)} 秒",
                     v => Settings.Update(x => x.NoticeDurationSeconds = (int)Math.Round(v))),
                 Divider(),
@@ -557,6 +557,59 @@ public partial class SettingsWindow
     }
 
     // =========================================================================
+    // 提醒与隐藏（v1.3.0）
+    // =========================================================================
+
+    private FrameworkElement BuildNotifySection()
+    {
+        var s = Settings.Current;
+
+        var explain = new TextBlock
+        {
+            FontFamily = FontRegular,
+            FontSize = 12.5,
+            Foreground = TextSecondary,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 22,
+            Text = "说明：v1.3 起“上课 / 下课”提醒改为宠物气泡轻提醒（灵动冒出 → 轻柔回弹 → 停留 → 收回），" +
+                   "不再全屏遮挡 PPT；只有“计时器超时”仍是全屏高斯模糊强提醒。"
+        };
+
+        return SectionFrame("提醒与隐藏",
+            "上下课气泡提醒的停留时长、宠物/课表显示开关，以及无操作自动收起/折叠。",
+            Card(
+                SliderRow("气泡提醒停留秒数",
+                    "上课 / 下课气泡在宠物上方停留的时间（2~30 秒，默认 7）。",
+                    2, 30, s.NoticeBubbleHoldSeconds, 1, v => $"{(int)Math.Round(v)} 秒",
+                    v => Settings.Update(x => x.NoticeBubbleHoldSeconds = (int)Math.Round(v))),
+                Divider(),
+                FullRow("提醒方式", null, explain)
+            ),
+            Card(
+                Row("隐藏宠物本体",
+                    "只隐藏宠物本体，屏幕右侧保留一道可点击的粗弧线，点一下即可恢复。",
+                    Toggle(s.HidePet, v => Settings.Update(x => x.HidePet = v))),
+                Divider(),
+                Row("隐藏课表与信息面板",
+                    "隐藏宠物头顶的课表 / 常驻信息面板（宠物本体和侧边弧保留）。",
+                    Toggle(!s.ShowTimetablePanel, v => Settings.Update(x => x.ShowTimetablePanel = !v)))
+            ),
+            Card(
+                SliderRow("宠物无动态自动收起",
+                    "宠物 0~120 分钟无动态后自动收进屏幕侧边变成一道粗弧线；0 = 关闭（默认 10 分钟）。",
+                    0, 120, Math.Clamp(s.PetIdleCollapseMinutes, 0, 120), 1,
+                    v => v <= 0 ? "关闭" : $"{(int)Math.Round(v)} 分钟",
+                    v => Settings.Update(x => x.PetIdleCollapseMinutes = (int)Math.Round(v))),
+                Divider(),
+                SliderRow("课表无操作自动折叠",
+                    "课表 0~120 分钟无操作后自动折叠成“下节课时间 + 下节课内容”；0 = 关闭（默认 10 分钟）。",
+                    0, 120, Math.Clamp(s.TimetableIdleFoldMinutes, 0, 120), 1,
+                    v => v <= 0 ? "关闭" : $"{(int)Math.Round(v)} 分钟",
+                    v => Settings.Update(x => x.TimetableIdleFoldMinutes = (int)Math.Round(v)))
+            ));
+    }
+
+    // =========================================================================
     // 端侧 AI（v1.2.0）
     // =========================================================================
 
@@ -845,15 +898,16 @@ public partial class SettingsWindow
 
     private FrameworkElement BuildPreviewSection()
     {
-        return SectionFrame("提示预览", "预览全屏提示的实际效果（会短暂盖住屏幕，可按提示自动关闭）。",
+        var hold = Math.Clamp(Settings.Current.NoticeBubbleHoldSeconds, 2, 30);
+        return SectionFrame("提示预览", "预览上课/下课的气泡轻提醒，以及计时器全屏强提醒。",
             Card(
-                Row("上课提示", "全屏显示醒目的“上课”提示（带自动关闭进度条）。",
-                    ActionButton("预览上课提示", () => AppServices.Current.PreviewClassStartNotice(), primary: true)),
+                Row("上课提示（气泡）", $"在宠物上方弹出“上课”气泡提醒，约 {hold} 秒后自动收回，不再全屏遮挡 PPT。",
+                    ActionButton("预览上课气泡", () => AppServices.Current.PreviewClassStartNotice(), primary: true)),
                 Divider(),
-                Row("下课提示", "全屏显示“下课”文字提示，不遮挡点击，自动关闭。",
-                    ActionButton("预览下课提示", () => AppServices.Current.PreviewClassEndNotice())),
+                Row("下课提示（气泡）", $"在宠物上方弹出“下课”气泡提醒，约 {hold} 秒后自动收回，不遮挡点击。",
+                    ActionButton("预览下课气泡", () => AppServices.Current.PreviewClassEndNotice())),
                 Divider(),
-                Row("计时器超时", "全屏高斯模糊 + 居中的“计时器超时”，15 秒自动关闭，也可提前关闭。",
+                Row("计时器超时（全屏）", "唯一保留的全屏提醒：高斯模糊 + 居中的“计时器超时”，15 秒自动关闭，也可提前关闭。",
                     ActionButton("预览计时器超时", () => AppServices.Current.PreviewTimerTimeout()))
             ));
     }

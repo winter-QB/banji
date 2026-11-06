@@ -39,7 +39,7 @@ public partial class SettingsWindow : Window
     private TextBlock? _aiModelDirText;
     private StackPanel? _aiModelListPanel;
 
-    /// <summary>可选：打开时定位到的分区（general/class/pick/buttons/bubble/pet/ai/countdown/timer/preview/backup）。</summary>
+    /// <summary>可选：打开时定位到的分区（general/class/pick/buttons/bubble/pet/notify/ai/countdown/timer/preview/backup）。</summary>
     public string? InitialSection
     {
         get => _initialSection;
@@ -159,6 +159,7 @@ public partial class SettingsWindow : Window
         "buttons" or "button" => "buttons",
         "bubble" or "bubbles" => "bubble",
         "pet" or "growth" => "pet",
+        "notify" or "reminder" or "hide" or "notices" => "notify",
         "ai" or "endai" or "local-ai" or "localai" or "端侧ai" => "ai",
         "countdown" or "exam" or "dday" or "exam-countdown" => "countdown",
         "timer" or "audio" => "timer",
@@ -186,6 +187,7 @@ public partial class SettingsWindow : Window
         "buttons" => BuildButtonsSection(),
         "bubble" => BuildBubbleSection(),
         "pet" => BuildPetSection(),
+        "notify" => BuildNotifySection(),
         "ai" => BuildAiSection(),
         "countdown" => BuildCountdownSection(),
         "timer" => BuildTimerSection(),

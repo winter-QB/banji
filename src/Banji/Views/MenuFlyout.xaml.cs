@@ -228,6 +228,9 @@ public partial class MenuFlyout : Window
             ButtonOpacitySlider.Value = settings.Buttons.IdleOpacityPercent;
             ButtonOpacityValue.Text = $"{settings.Buttons.IdleOpacityPercent}%";
             ToggleTimetableText.Text = settings.ShowTimetablePanel ? "隐藏课表" : "显示课表";
+            var petWindow = AppServices.Current.PetWindow;
+            FoldTimetableText.Text = petWindow?.IsTimetableFolded == true ? "展开课表（折叠中）" : "折叠课表";
+            SetSwitch(HidePetSwitch, HidePetKnobOffset, settings.HidePet, animate: false);
             SetSwitch(CountdownSwitch, CountdownKnobOffset, settings.ShowCountdownOnPet, animate: false);
             SetSwitch(GrowthSwitch, GrowthKnobOffset, settings.EnableGrowth, animate: false);
             SetSwitch(AlwaysOnTopSwitch, AlwaysOnTopKnobOffset, settings.AlwaysOnTop, animate: false);
@@ -474,6 +477,31 @@ public partial class MenuFlyout : Window
         }
     }
 
+    private void OnFoldTimetableClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var pet = AppServices.Current.PetWindow;
+            if (pet is null) return;
+            if (pet.IsTimetableFolded) pet.UnfoldTimetable();
+            else pet.FoldTimetable();
+            FoldTimetableText.Text = pet.IsTimetableFolded ? "展开课表（折叠中）" : "折叠课表";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("切换课表折叠态失败", ex);
+        }
+    }
+
+    private void OnHidePetToggleClick(object sender, RoutedEventArgs e) => ToggleSwitch(
+        HidePetSwitch, HidePetKnobOffset,
+        AppServices.Current.Settings.Current.HidePet,
+        value =>
+        {
+            AppServices.Current.Settings.Update(s => s.HidePet = value);
+            if (!value) AppServices.Current.PetWindow?.ExpandFromEdge();
+        });
+
     private void OnSettingsClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowSettings());
 
     private void OnDashboardClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowDashboard());
@@ -528,6 +556,7 @@ public partial class MenuFlyout : Window
         }
     }
 }
+
 
 
 
