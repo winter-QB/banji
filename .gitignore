@@ -25,3 +25,7 @@ build/*.log
 build/*.zip
 # 安装器自测临时目录
 .tmp-install/
+
+# 打包测试临时目录（v1.3 误提交事故）
+build/publish-*/
+build/*-test/
