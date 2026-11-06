@@ -1,4 +1,4 @@
-﻿using Banji.Core.Models;
+using Banji.Core.Models;
 
 namespace Banji.Core.Quips;
 
@@ -10,6 +10,9 @@ public readonly record struct SchoolLine(string Label, string Value, string Suff
 
 /// <summary>常驻信息框第三行：当前课 / 下一节（两段“小字标签 + 课程名”）。</summary>
 public readonly record struct CourseLine(string Prefix1, string Value1, string Prefix2, string Value2);
+
+/// <summary>考试/重要日期倒计时行（第二轮新增 D-Day）。</summary>
+public readonly record struct CountdownLine(string Name, int DaysLeft, string Text, bool IsToday, string Color);
 
 /// <summary>
 /// 宠物常驻信息框的纯文案逻辑（不依赖 WPF，便于单测）。
@@ -113,6 +116,34 @@ public static class PetUiFormatter
 
     /// <summary>课程行右侧的时间小字，如“08:55”。</summary>
     public static string CourseTime(CourseOccurrence course) => $"{course.Start:HH:mm}";
+
+    /// <summary>
+    /// 考试倒计时行（第二轮新增）：在启用且未过期的考试/重要日期里，取最近的一个；
+    /// 今天就是返回“XX就是今天！”。全部过期或没有配置时返回 null（该行隐藏）。
+    /// </summary>
+    public static CountdownLine? NextCountdown(IEnumerable<CountdownEventItem>? events, DateOnly today)
+    {
+        if (events is null) return null;
+
+        CountdownEventItem? nearest = null;
+        var nearestDays = int.MaxValue;
+        foreach (var item in events)
+        {
+            if (item is null || !item.Enabled || string.IsNullOrWhiteSpace(item.Name)) continue;
+            var days = item.DaysLeft(today);
+            if (days < 0) continue; // 已过期的自动忽略
+            if (days >= nearestDays) continue;
+            nearest = item;
+            nearestDays = days;
+        }
+
+        if (nearest is null) return null;
+        var text = nearestDays == 0
+            ? $"{nearest.Name.Trim()}就是今天！"
+            : $"距{nearest.Name.Trim()} {nearestDays} 天";
+        var color = string.IsNullOrWhiteSpace(nearest.Color) ? "#FF6B6B" : nearest.Color;
+        return new CountdownLine(nearest.Name.Trim(), nearestDays, text, nearestDays == 0, color);
+    }
 
     private static string Format(TimeSpan? span)
         => span is { } value ? ScheduleSnapshot.FormatCountdown(value) : "—";

@@ -68,12 +68,26 @@ public partial class MenuFlyout : Window
         };
         Loaded += (_, _) =>
         {
+            try
+            {
+                // 小屏幕下菜单不越出工作区：内容超出时内部滚动。
+                MenuScroll.MaxHeight = Math.Max(220, SystemParameters.WorkArea.Height - 120);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"设置菜单滚动高度失败：{ex.Message}");
+            }
             SyncFromSettings();
             if (_anchorSet) PlaceNear(_anchor);
             AnimateIn();
             _outsideClickWatch.Start();
         };
-        Closed += (_, _) => _outsideClickWatch.Stop();
+        Closed += (_, _) =>
+        {
+            _outsideClickWatch.Stop();
+            try { AppServices.Current.Growth.Changed -= OnGrowthChanged; } catch { /* ignore */ }
+        };
+        try { AppServices.Current.Growth.Changed += OnGrowthChanged; } catch { /* 服务未就绪时忽略 */ }
         // 内容最终高度可能晚于第一次 PlaceNear 才确定，尺寸变化时重新贴边，确保不越出工作区。
         SizeChanged += (_, _) =>
         {
@@ -205,8 +219,11 @@ public partial class MenuFlyout : Window
             ButtonOpacitySlider.Value = settings.Buttons.IdleOpacityPercent;
             ButtonOpacityValue.Text = $"{settings.Buttons.IdleOpacityPercent}%";
             ToggleTimetableText.Text = settings.ShowTimetablePanel ? "隐藏课表" : "显示课表";
+            SetSwitch(CountdownSwitch, CountdownKnobOffset, settings.ShowCountdownOnPet, animate: false);
+            SetSwitch(GrowthSwitch, GrowthKnobOffset, settings.EnableGrowth, animate: false);
             SetSwitch(AlwaysOnTopSwitch, AlwaysOnTopKnobOffset, settings.AlwaysOnTop, animate: false);
             SetSwitch(AutoStartSwitch, AutoStartKnobOffset, settings.AutoStartWithWindows, animate: false);
+            RefreshGrowthDisplay();
         }
         catch (Exception ex)
         {
@@ -320,6 +337,67 @@ public partial class MenuFlyout : Window
     // =========================================================================
     // 开关与菜单项
     // =========================================================================
+
+    // =========================================================================
+    // 考试倒计时 / 陪伴养成（第二轮新增）
+    // =========================================================================
+
+    private void OnCountdownToggleClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var enabled = !AppServices.Current.Settings.Current.ShowCountdownOnPet;
+            AppServices.Current.Settings.Update(s => s.ShowCountdownOnPet = enabled);
+            SetSwitch(CountdownSwitch, CountdownKnobOffset, enabled, animate: true);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("切换考试倒计时显示失败", ex);
+        }
+    }
+
+    private void OnGrowthToggleClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var enabled = !AppServices.Current.Settings.Current.EnableGrowth;
+            AppServices.Current.Settings.Update(s => s.EnableGrowth = enabled);
+            SetSwitch(GrowthSwitch, GrowthKnobOffset, enabled, animate: true);
+            RefreshGrowthDisplay();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("切换养成统计失败", ex);
+        }
+    }
+
+    private void OnGrowthChanged(object? sender, EventArgs e) => RefreshGrowthDisplay();
+
+    private void RefreshGrowthDisplay()
+    {
+        try
+        {
+            var services = AppServices.Current;
+            var enabled = services.Settings.Current.EnableGrowth;
+            var stats = services.Growth.Stats;
+
+            GrowthDaysValue.Text = enabled ? $"陪伴 {stats.DaysUsed} 天" : "已关闭";
+            GrowthStatsText.Text = $"摸头 {stats.PatCount} 次 · 抽签 {stats.PickCount} 次 · 分组 {stats.GroupCount} 次";
+
+            var unlocked = services.Growth.Achievements;
+            var total = Core.Growth.PetGrowthService.Definitions.Count;
+            GrowthAchievementsText.Text = unlocked.Count == 0
+                ? $"成就 0/{total}：再摸摸头试试"
+                : $"成就 {unlocked.Count}/{total}：{string.Join("、", unlocked.Select(a => a.Title))}";
+            GrowthAchievementsText.ToolTip = unlocked.Count == 0
+                ? "摸头、抽签、分组、上下课都会慢慢解锁成就"
+                : string.Join("\n", unlocked.Select(a => $"{a.Title} —— {a.Description}"));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("刷新养成统计显示失败", ex);
+        }
+    }
 
     private void OnAlwaysOnTopClick(object sender, RoutedEventArgs e) => ToggleSwitch(
         AlwaysOnTopSwitch, AlwaysOnTopKnobOffset,
@@ -449,6 +527,7 @@ public partial class MenuFlyout : Window
         }
     }
 }
+
 
 
 

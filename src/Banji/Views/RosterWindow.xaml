@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="花名册管理 - 班机"
-        Width="1020" Height="700" MinWidth="880" MinHeight="580"
+        Width="1100" Height="720" MinWidth="940" MinHeight="600"
         WindowStartupLocation="CenterScreen"
         Background="#F5F7FB"
         FontFamily="{StaticResource Font.Regular}"
@@ -254,10 +254,17 @@
                                       VerticalAlignment="Center" Checked="OnShowScoreChanged" Unchecked="OnShowScoreChanged" />
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <TextBlock x:Name="StudentCountText" Text="共 0 人" FontSize="12" Foreground="#8A93A3"
-                                       VerticalAlignment="Center" Margin="0,0,12,0" />
+                            <Button x:Name="AddPointButton" Content="＋1 分" Style="{StaticResource Button.FormGhost}"
+                                    FontSize="12" Padding="10,6" IsEnabled="False" Click="OnAddPointClick"
+                                    ToolTip="给表格中选中的学生 +1 积分" />
+                            <Button x:Name="SubtractPointButton" Content="－1 分" Style="{StaticResource Button.FormGhost}"
+                                    FontSize="12" Padding="10,6" Margin="6,0,0,0" IsEnabled="False" Click="OnSubtractPointClick"
+                                    ToolTip="给表格中选中的学生 -1 积分" />
+                            <Button x:Name="ResetPointsButton" Content="清零积分" Style="{StaticResource Button.FormGhost}"
+                                    FontSize="12" Padding="10,6" Margin="6,0,0,0" Click="OnResetPointsClick"
+                                    ToolTip="把本花名册所有学生的积分清零" />
                             <Button x:Name="SaveStudentsButton" Content="保存修改" Style="{StaticResource Button.FormGhost}"
-                                    FontSize="12" Padding="12,6" Click="OnSaveStudentsClick" />
+                                    FontSize="12" Padding="10,6" Margin="12,0,0,0" Click="OnSaveStudentsClick" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -265,7 +272,8 @@
                 <!-- 学生表格 -->
                 <Border Grid.Row="3" Background="White" CornerRadius="12" Padding="6">
                     <DataGrid x:Name="StudentGrid" IsReadOnly="False" SelectionUnit="CellOrRowHeader"
-                              CanUserSortColumns="False" BorderThickness="0">
+                              CanUserSortColumns="False" BorderThickness="0"
+                              SelectionChanged="OnStudentSelectionChanged">
                         <DataGrid.Columns>
                             <DataGridTextColumn Header="学号" Width="180"
                                                 Binding="{Binding Id, UpdateSourceTrigger=LostFocus}" />
@@ -273,6 +281,8 @@
                                                 Binding="{Binding Name, UpdateSourceTrigger=LostFocus}" />
                             <DataGridTextColumn Header="成绩" Width="120"
                                                 Binding="{Binding Score, UpdateSourceTrigger=LostFocus, TargetNullValue=''}" />
+                            <DataGridTextColumn Header="积分" Width="90" IsReadOnly="True"
+                                                Binding="{Binding Points, Mode=OneWay}" />
                         </DataGrid.Columns>
                     </DataGrid>
                 </Border>
@@ -304,8 +314,8 @@
 
         <!-- 底部提示 -->
         <Grid Grid.Row="2" Margin="24,0,24,14">
-            <TextBlock Text="提示：双击“学号 / 姓名 / 成绩”单元格即可直接修改，改完点“保存修改”落盘。"
-                       FontSize="11" Foreground="#9AA3AF" />
+            <TextBlock Text="提示：双击“学号 / 姓名 / 成绩”单元格即可直接修改，改完点“保存修改”落盘；点选表格中的学生后可用“＋1 分 / －1 分”记课堂积分。"
+                       FontSize="11" Foreground="#9AA3AF" TextTrimming="CharacterEllipsis" />
         </Grid>
     </Grid>
 </Window>

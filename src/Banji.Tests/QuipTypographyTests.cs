@@ -1,4 +1,4 @@
-﻿using Banji.Core.Models;
+using Banji.Core.Models;
 using Banji.Core.Quips;
 
 namespace Banji.Tests;
@@ -118,6 +118,38 @@ public static class QuipTypographyTests
         Assert.True(Math.Abs(BubbleTypography.EstimateTextUnits("数学") - 2.0) < 1e-9, "两个汉字应为 2 个字宽");
         Assert.True(Math.Abs(BubbleTypography.EstimateTextUnits("abc") - 1.68) < 1e-9, "三个字母应约 1.68 个字宽");
         Assert.True(BubbleTypography.EstimateTextUnits("王浩然") > BubbleTypography.EstimateTextUnits("abc"));
+    }
+
+    // =========================================================================
+    // 第二轮新增：多行气泡排版（行高必须按字号换算，不能是绝对像素）
+    // =========================================================================
+
+    [BanjiTest]
+    public static void 气泡行高按字号换算不会叠字()
+    {
+        foreach (var fontSize in new[] { 15.0, 16, 17.5, 19, 21 })
+        {
+            var lineHeight = BubbleTypography.LineHeightFor(fontSize);
+            Assert.True(lineHeight > fontSize * 1.2,
+                $"字号 {fontSize} 时行高 {lineHeight} 太小，多行会叠字");
+            Assert.True(lineHeight < fontSize * 1.8,
+                $"字号 {fontSize} 时行高 {lineHeight} 太大，气泡会很松散");
+        }
+
+        Assert.True(BubbleTypography.LineHeightFor(21) > BubbleTypography.LineHeightFor(15));
+        Assert.True(BubbleTypography.LineHeightFor(0) > 0, "非法字号也应有兜底行高");
+    }
+
+    [BanjiTest]
+    public static void 长台词会被估算成多行()
+    {
+        const string longText = "今天也是被三角函数和文言文包围的一天，但我还是想先睡个午觉，然后再认真把题做完。";
+        Assert.True(BubbleTypography.EstimateLineCount(longText, 300, 16) >= 2, "长台词应当估算为多行");
+        Assert.True(BubbleTypography.EstimateLineCount(longText, 180, 16) >=
+                    BubbleTypography.EstimateLineCount(longText, 360, 16), "宽度越窄行数不应减少");
+        Assert.Equal(1, BubbleTypography.EstimateLineCount("短句", 300, 18));
+        Assert.Equal(1, BubbleTypography.EstimateLineCount("", 300, 18));
+        Assert.Equal(1, BubbleTypography.EstimateLineCount("较长的一句话", 0, 18));
     }
 }
 

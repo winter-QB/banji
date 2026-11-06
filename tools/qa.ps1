@@ -94,7 +94,11 @@ switch ($Action) {
     "cmd" {
         if ($Rest.Count -eq 0) { throw "cmd 需要参数，例如: qa.ps1 cmd --cmd pick" }
         $procs = Get-BanjiProcesses
-        if ($procs.Count -eq 0) { throw "当前没有运行中的班机实例，请先 qa.ps1 restart" }
+        if ($procs.Count -eq 0) {
+            Write-Host "（未检测到班机实例，自动启动一个）"
+            if (-not (Start-BanjiFresh)) { throw "无法启动班机实例" }
+            $procs = Get-BanjiProcesses
+        }
         if ($procs.Count -gt 1) {
             Write-Warning "发现 $($procs.Count) 个班机实例，保留最早的 PID $($procs[0].Id)"
             $procs | Select-Object -Skip 1 | Stop-Process -Force -ErrorAction SilentlyContinue

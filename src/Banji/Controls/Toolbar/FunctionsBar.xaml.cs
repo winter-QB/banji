@@ -11,31 +11,34 @@ namespace Banji.Controls.Toolbar;
 /// <summary>功能区布局模式。</summary>
 public enum FunctionsBarLayoutMode
 {
-    /// <summary>按可用空间自动选择（宽则一行，窄则 2×2，更窄则竖排一列）。</summary>
+    /// <summary>按可用空间自动选择（宽则一行，窄则两列多行，更窄则竖排一列）。</summary>
     Auto = 0,
     OneRow = 1,
+    /// <summary>两列多行（5 个功能区按钮时自动排成 2 列 3 行）。</summary>
     TwoByTwo = 2,
     Vertical = 3
 }
 
 /// <summary>
-/// 宠物左下角展开的功能区（开发文档第 4 章）：
-/// 抽签（右侧小 + 号选择花名册）、倒计时、正计时、清醒一下。
+/// 宠物左下角展开的功能区（开发文档第 4 章 + 第二轮新增“分组”）：
+/// 抽签（右侧小 + 号选择花名册）、倒计时、正计时、清醒一下、分组。
 /// <para>• 计时进行中，对应的倒计时/正计时按钮变成“取消计时”并使用强调样式，点击即取消；</para>
 /// <para>• 按钮四态颜色/透明度/边框/圆角/阴影/字号全部来自 <c>Settings.Current.Buttons</c>，改设置实时生效；</para>
-/// <para>• 布局随宿主给的宽度自适应（2×2 默认，宽则一行，窄则一列），随宠物整体缩放不破版。</para>
+/// <para>• 布局随宿主给的宽度自适应（默认两列多行，宽则一行，窄则一列），随宠物整体缩放不破版。</para>
 /// </summary>
 public partial class FunctionsBar : UserControl
 {
     private const double Gap = 4;
     private const double InnerGap = 2;
     private const double OuterMargin = 4; // 与 XAML 里 Host.Margin 一致
+    private const int TwoColumnRowCount = 3; // 5 个按钮按两列排 = 3 行
 
     private ToolButton _pickButton = null!;
     private ToolButton _plusButton = null!;
     private ToolButton _countdownButton = null!;
     private ToolButton _stopwatchButton = null!;
     private ToolButton _stingButton = null!;
+    private ToolButton _groupingButton = null!;
 
     private ButtonStyleSettings _style = new();
     private FunctionsBarLayoutMode _mode = (FunctionsBarLayoutMode)(-1);
@@ -65,11 +68,13 @@ public partial class FunctionsBar : UserControl
         _countdownButton = CreateButton("倒计时", OnCountdownClick);
         _stopwatchButton = CreateButton("正计时", OnStopwatchClick);
         _stingButton = CreateButton("清醒一下", OnStingClick);
+        _groupingButton = CreateButton("分组", OnGroupingClick);
         _pickButton.ToolTip = "抽签";
         _plusButton.ToolTip = "选择花名册";
         _countdownButton.ToolTip = "倒计时";
         _stopwatchButton.ToolTip = "正计时";
         _stingButton.ToolTip = "清醒一下";
+        _groupingButton.ToolTip = "随机分组";
     }
 
     private static ToolButton CreateButton(string text, RoutedEventHandler onClick)
@@ -126,6 +131,9 @@ public partial class FunctionsBar : UserControl
     private void OnStingClick(object sender, RoutedEventArgs e) => Guard("清醒一下", () =>
         AppServices.Current.Audio.PlayRandomSting());
 
+    private void OnGroupingClick(object sender, RoutedEventArgs e) => Guard("随机分组", () =>
+        AppServices.Current.ShowGroupingWindow());
+
     private static void Guard(string action, Action body)
     {
         try
@@ -152,6 +160,7 @@ public partial class FunctionsBar : UserControl
         ToolButtonStyler.Apply(_countdownButton, _style);
         ToolButtonStyler.Apply(_stopwatchButton, _style);
         ToolButtonStyler.Apply(_stingButton, _style);
+        ToolButtonStyler.Apply(_groupingButton, _style);
 
         UpdateSizes();
         UpdateTimerLabels();
@@ -180,9 +189,20 @@ public partial class FunctionsBar : UserControl
         _countdownButton.Width = timerWidth;
         _stopwatchButton.Width = timerWidth;
         _stingButton.Width = Math.Round(4 * fs + 12);  // 清醒一下
+        _groupingButton.Width = Math.Round(2 * fs + 12); // 分组
 
-        foreach (var button in new[] { _pickButton, _plusButton, _countdownButton, _stopwatchButton, _stingButton })
+        foreach (var button in AllButtons())
             button.Height = height;
+    }
+
+    private IEnumerable<ToolButton> AllButtons()
+    {
+        yield return _pickButton;
+        yield return _plusButton;
+        yield return _countdownButton;
+        yield return _stopwatchButton;
+        yield return _stingButton;
+        yield return _groupingButton;
     }
 
     /// <summary>计时进行中“倒计时/正计时”按钮变“取消计时”强调样式。</summary>
@@ -228,7 +248,9 @@ public partial class FunctionsBar : UserControl
     {
         get
         {
-            var col0 = Math.Max(_pickButton.Width + InnerGap + _plusButton.Width, _countdownButton.Width);
+            var col0 = Math.Max(
+                Math.Max(_pickButton.Width + InnerGap + _plusButton.Width, _stopwatchButton.Width),
+                _groupingButton.Width);
             var col1 = Math.Max(_countdownButton.Width, _stingButton.Width);
             return col0 + Gap + col1;
         }
@@ -236,21 +258,22 @@ public partial class FunctionsBar : UserControl
 
     private double OneRowWidth =>
         _pickButton.Width + InnerGap + _plusButton.Width + Gap +
-        _countdownButton.Width + Gap + _stopwatchButton.Width + Gap + _stingButton.Width;
+        _countdownButton.Width + Gap + _stopwatchButton.Width + Gap + _stingButton.Width +
+        Gap + _groupingButton.Width;
 
-    private double TwoRowHeight => _pickButton.Height * 2 + Gap;
+    private double TwoColumnHeight => _pickButton.Height * TwoColumnRowCount + Gap * (TwoColumnRowCount - 1);
 
     private FunctionsBarLayoutMode DecideMode()
     {
         if (PreferredLayout != FunctionsBarLayoutMode.Auto) return PreferredLayout;
-        // 首次测量（ActualWidth 为 0）时用紧凑的 2×2，避免把宠物窗先撑宽。
+        // 首次测量（ActualWidth 为 0）时用紧凑的两列多行，避免把宠物窗先撑宽。
         if (ActualWidth <= 0.5 || ActualHeight <= 0.5) return FunctionsBarLayoutMode.TwoByTwo;
 
         var width = ContentWidth;
         var height = ContentHeight;
         if (width + 0.6 >= OneRowWidth && height + 0.6 >= _pickButton.Height)
             return FunctionsBarLayoutMode.OneRow;
-        if (width + 0.6 >= TwoColumnWidth && height + 0.6 >= TwoRowHeight)
+        if (width + 0.6 >= TwoColumnWidth && height + 0.6 >= TwoColumnHeight)
             return FunctionsBarLayoutMode.TwoByTwo;
         return FunctionsBarLayoutMode.Vertical;
     }
@@ -290,7 +313,7 @@ public partial class FunctionsBar : UserControl
 
     private void DetachAllButtons()
     {
-        foreach (var button in new[] { _pickButton, _plusButton, _countdownButton, _stopwatchButton, _stingButton })
+        foreach (var button in AllButtons())
         {
             if (button.Parent is Panel panel) panel.Children.Remove(button);
             else if (button.Parent is Grid grid) grid.Children.Remove(button);
@@ -307,45 +330,50 @@ public partial class FunctionsBar : UserControl
         _plusButton.Margin = new Thickness(0, 0, Gap, 0);
         _countdownButton.Margin = new Thickness(0, 0, Gap, 0);
         _stopwatchButton.Margin = new Thickness(0, 0, Gap, 0);
-        _stingButton.Margin = new Thickness(0);
+        _stingButton.Margin = new Thickness(0, 0, Gap, 0);
+        _groupingButton.Margin = new Thickness(0);
         row.Children.Add(_pickButton);
         row.Children.Add(_plusButton);
         row.Children.Add(_countdownButton);
         row.Children.Add(_stopwatchButton);
         row.Children.Add(_stingButton);
+        row.Children.Add(_groupingButton);
         Host.Children.Add(row);
     }
 
+    /// <summary>两列多行（当前 5 个按钮 → 3 行：抽签+/ / 倒计时；正计时 / 清醒一下；分组 / 空）。</summary>
     private void BuildTwoByTwo()
     {
         Host.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         Host.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        Host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        for (var i = 0; i < TwoColumnRowCount; i++)
+            Host.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
         var pickGroup = new StackPanel { Orientation = Orientation.Horizontal };
         _pickButton.Margin = new Thickness(0, 0, InnerGap, 0);
         _plusButton.Margin = new Thickness(0);
         pickGroup.Children.Add(_pickButton);
         pickGroup.Children.Add(_plusButton);
-        Grid.SetRow(pickGroup, 0);
-        Grid.SetColumn(pickGroup, 0);
-        Host.Children.Add(pickGroup);
+        Place(pickGroup, 0, 0);
 
         _countdownButton.Margin = new Thickness(Gap, 0, 0, 0);
-        Grid.SetRow(_countdownButton, 0);
-        Grid.SetColumn(_countdownButton, 1);
-        Host.Children.Add(_countdownButton);
+        Place(_countdownButton, 0, 1);
 
         _stopwatchButton.Margin = new Thickness(0, Gap, 0, 0);
-        Grid.SetRow(_stopwatchButton, 1);
-        Grid.SetColumn(_stopwatchButton, 0);
-        Host.Children.Add(_stopwatchButton);
+        Place(_stopwatchButton, 1, 0);
 
         _stingButton.Margin = new Thickness(Gap, Gap, 0, 0);
-        Grid.SetRow(_stingButton, 1);
-        Grid.SetColumn(_stingButton, 1);
-        Host.Children.Add(_stingButton);
+        Place(_stingButton, 1, 1);
+
+        _groupingButton.Margin = new Thickness(0, Gap, 0, 0);
+        Place(_groupingButton, 2, 0);
+    }
+
+    private void Place(UIElement element, int row, int column)
+    {
+        Grid.SetRow(element, row);
+        Grid.SetColumn(element, column);
+        Host.Children.Add(element);
     }
 
     private void BuildVertical()
@@ -354,7 +382,8 @@ public partial class FunctionsBar : UserControl
         _pickButton.Margin = new Thickness(0, 0, 0, InnerGap);
         _countdownButton.Margin = new Thickness(0, 0, 0, Gap);
         _stopwatchButton.Margin = new Thickness(0, 0, 0, Gap);
-        _stingButton.Margin = new Thickness(0);
+        _stingButton.Margin = new Thickness(0, 0, 0, Gap);
+        _groupingButton.Margin = new Thickness(0);
 
         var pickGroup = new StackPanel
         {
@@ -370,6 +399,7 @@ public partial class FunctionsBar : UserControl
         column.Children.Add(_countdownButton);
         column.Children.Add(_stopwatchButton);
         column.Children.Add(_stingButton);
+        column.Children.Add(_groupingButton);
         Host.Children.Add(column);
     }
 

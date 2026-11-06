@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Threading;
 using Banji.Core.Abstractions;
 using Banji.Core.Boot;
@@ -96,9 +96,18 @@ public partial class App : Application
             case "pick":
                 svc.Picker.Pick();
                 break;
-            case "settings":
-                svc.ShowSettings();
+            case "pat":
+                svc.PetWindow?.TestPat();
                 break;
+            case "quip":
+                svc.PetWindow?.ShowTestQuip(args.Length > 1 ? string.Join(' ', args[1..]) : null);
+                break;
+            case "settings":
+            {
+                var w = svc.ShowSettings();
+                if (args.Length > 1 && !args[1].StartsWith("--")) w.InitialSection = args[1];
+                break;
+            }
             case "dashboard":
                 svc.ShowDashboard();
                 break;
@@ -111,6 +120,58 @@ public partial class App : Application
             case "periods":
                 svc.ShowPeriodSettings();
                 break;
+            case "grouping":
+                svc.ShowGroupingWindow();
+                break;
+            case "ring-calibration":
+                svc.ShowRingCalibrationWindow();
+                break;
+            case "backup-export":
+                if (args.Length > 1)
+                {
+                    var size = svc.Backup.ExportTo(args[1]);
+                    Log.Info($"备份已导出: {args[1]} ({size} bytes)");
+                }
+                break;
+            case "backup-inspect":
+                if (args.Length > 1)
+                {
+                    var info = svc.Backup.Inspect(args[1]);
+                    Log.Info($"备份信息: 创建={info.CreatedAt:yyyy-MM-dd HH:mm} 版本={info.AppVersion} 名单={info.RosterCount} 学生={info.StudentCount} 文件={string.Join(',', info.Files)}");
+                }
+                break;
+            case "backup-import":
+                if (args.Length > 1)
+                {
+                    svc.Backup.RestoreFrom(args[1]);
+                    Log.Info("备份已恢复（重启后生效）");
+                }
+                break;
+            case "restart":
+                svc.RestartApplication();
+                break;
+            case "set-notice-duration":
+                if (args.Length > 1 && int.TryParse(args[1], out var noticeSecs))
+                    svc.Settings.Update(x => x.NoticeDurationSeconds = noticeSecs);
+                break;
+            case "exam-demo":
+            {
+                // QA：写入演示考试倒计时（高考/期末/校运会），方便截图与验证 D-Day
+                var today = DateOnly.FromDateTime(DateTime.Now);
+                svc.Settings.Update(x =>
+                {
+                    x.CountdownEvents = new List<CountdownEventItem>
+                    {
+                        new() { Name = "高考", Date = new DateOnly(2027, 6, 7), Enabled = true, Color = "#FF6B6B" },
+                        new() { Name = "期末考试", Date = today.AddDays(45), Enabled = true, Color = "#FF9F1C" },
+                        new() { Name = "校运动会", Date = today.AddDays(12), Enabled = true, Color = "#22C55E" }
+                    };
+                    x.ShowCountdownOnPet = true;
+                });
+                svc.Clock.Refresh();
+                Log.Info("QA：已写入演示考试倒计时");
+                break;
+            }
             case "import-roster":
                 svc.ShowRosterImport(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : null);
                 break;

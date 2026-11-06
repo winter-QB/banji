@@ -1,6 +1,5 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Threading;
@@ -10,8 +9,9 @@ using Banji.Core.Settings;
 namespace Banji.Controls.Pet;
 
 /// <summary>
-/// 宠物本体：极简橙色几何团子 + 两个纯黑实心圆点眼睛（无眼白/高光/瞳孔/腮红/鼻子/嘴巴）。
-/// 提供极轻的呼吸浮动、周期眨眼、悬浮轻微放大与提亮、被摸时的轻微挤压反馈。
+/// 宠物本体（第二轮用户要求改版）：<b>方形、扁扁的</b>小方块生物，
+/// 两只小方形手 + 两只小方形脚，两只纯黑实心小圆点眼睛，无腮红/鼻子/嘴巴/高光；
+/// 默认雾蓝色。保留呼吸浮动、周期眨眼、悬浮轻微放大提亮、被摸时的挤压反馈。
 /// 交互（拖动窗口 / 点击对话）由 <see cref="Banji.Views.PetWindow"/> 负责，本控件只负责画和动。
 /// </summary>
 public partial class PetControl : UserControl
@@ -42,25 +42,40 @@ public partial class PetControl : UserControl
     {
         try
         {
-            var body = ParseColor(style.BodyColor, Color.FromRgb(0xD9, 0x77, 0x57));
+            var body = ParseColor(style.BodyColor, Color.FromRgb(0x8F, 0xB6, 0xF2));
             var shade = ParseColor(style.BodyShadeColor, body);
             var eye = ParseColor(style.EyeColor, Color.FromRgb(0x23, 0x1F, 0x20));
 
-            var gradient = new LinearGradientBrush
-            {
-                StartPoint = new Point(0.25, 0),
-                EndPoint = new Point(0.75, 1)
-            };
-            gradient.GradientStops.Add(new GradientStop(Lighten(body, 0.15), 0));
-            gradient.GradientStops.Add(new GradientStop(body, 0.56));
-            gradient.GradientStops.Add(new GradientStop(Darken(shade, 0.07), 1));
-            gradient.Freeze();
-            Body.Fill = gradient;
-
-            var outline = Darken(body, 0.24);
+            var outline = Darken(body, 0.30);
             var outlineBrush = new SolidColorBrush(outline);
             outlineBrush.Freeze();
-            Body.Stroke = outlineBrush;
+
+            var gradient = new LinearGradientBrush
+            {
+                StartPoint = new Point(0.5, 0),
+                EndPoint = new Point(0.5, 1)
+            };
+            gradient.GradientStops.Add(new GradientStop(Lighten(body, 0.10), 0));
+            gradient.GradientStops.Add(new GradientStop(body, 0.56));
+            gradient.GradientStops.Add(new GradientStop(Darken(shade, 0.04), 1));
+            gradient.Freeze();
+
+            Body.Background = gradient;
+            Body.BorderBrush = outlineBrush;
+
+            var limbBrush = new SolidColorBrush(Darken(shade, 0.07));
+            limbBrush.Freeze();
+            var limbOutline = new SolidColorBrush(outline);
+            limbOutline.Freeze();
+
+            HandLeft.Background = limbBrush;
+            HandRight.Background = limbBrush;
+            FootLeft.Background = limbBrush;
+            FootRight.Background = limbBrush;
+            HandLeft.BorderBrush = limbOutline;
+            HandRight.BorderBrush = limbOutline;
+            FootLeft.BorderBrush = limbOutline;
+            FootRight.BorderBrush = limbOutline;
 
             var eyeBrush = new SolidColorBrush(eye);
             eyeBrush.Freeze();
@@ -215,7 +230,7 @@ public partial class PetControl : UserControl
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
             var scaleX = new DoubleAnimation(_hovered ? 1.05 : 1.0, TimeSpan.FromMilliseconds(170)) { EasingFunction = ease };
             var scaleY = new DoubleAnimation(_hovered ? 1.045 : 1.0, TimeSpan.FromMilliseconds(170)) { EasingFunction = ease };
-            var glow = new DoubleAnimation(_hovered ? 0.11 : 0.0, TimeSpan.FromMilliseconds(170)) { EasingFunction = ease };
+            var glow = new DoubleAnimation(_hovered ? 0.12 : 0.0, TimeSpan.FromMilliseconds(170)) { EasingFunction = ease };
             HoverScale.BeginAnimation(ScaleTransform.ScaleXProperty, scaleX);
             HoverScale.BeginAnimation(ScaleTransform.ScaleYProperty, scaleY);
             HoverGlow.BeginAnimation(OpacityProperty, glow);
@@ -252,4 +267,3 @@ public partial class PetControl : UserControl
             (byte)Math.Round(color.G * (1 - amount)),
             (byte)Math.Round(color.B * (1 - amount)));
 }
-

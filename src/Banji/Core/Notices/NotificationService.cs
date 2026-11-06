@@ -39,6 +39,7 @@ public sealed class NotificationService : INotificationService
                 window.ConfigureClassStart(transition, settings);
                 Track(window);
                 window.Show();
+                Log.Info($"显示全屏提示：上课提示（{transition.Current?.CourseDisplay ?? transition.Next?.CourseDisplay ?? "新的一节课"}，停留 {settings.NoticeDurationSeconds} 秒）");
             }
             catch (Exception ex)
             {
@@ -60,6 +61,7 @@ public sealed class NotificationService : INotificationService
                 window.ConfigureClassEnd(transition, settings);
                 Track(window);
                 window.Show();
+                Log.Info($"显示全屏提示：下课提示（停留 {settings.NoticeDurationSeconds} 秒）");
             }
             catch (Exception ex)
             {

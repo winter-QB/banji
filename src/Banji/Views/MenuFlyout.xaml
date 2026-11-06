@@ -1,4 +1,4 @@
-<Window x:Class="Banji.Views.MenuFlyout"
+﻿<Window x:Class="Banji.Views.MenuFlyout"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="BanjiMenu"
@@ -134,6 +134,7 @@
                 <DropShadowEffect Color="#1E3A8A" BlurRadius="20" ShadowDepth="3" Direction="270" Opacity="0.22" />
             </Border.Effect>
 
+            <ScrollViewer x:Name="MenuScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="6,8,6,9" TextOptions.TextFormattingMode="Ideal">
                 <!-- 标题 -->
                 <Grid Margin="10,2,10,9">
@@ -164,6 +165,23 @@
 
                 <Button x:Name="MenuToggleTimetable" Style="{StaticResource Menu.Item}" Click="OnToggleTimetableClick">
                     <TextBlock x:Name="ToggleTimetableText" Text="隐藏课表" />
+                </Button>
+                <Button x:Name="MenuCountdown" Style="{StaticResource Menu.ItemStretch}" Click="OnCountdownToggleClick">
+                    <Grid>
+                        <TextBlock Text="显示考试倒计时" VerticalAlignment="Center" />
+                        <Border x:Name="CountdownSwitch" Width="34" Height="19" CornerRadius="9.5"
+                                HorizontalAlignment="Right" VerticalAlignment="Center" Background="#D7DEEA">
+                            <Ellipse x:Name="CountdownKnob" Width="13" Height="13" Fill="White"
+                                     HorizontalAlignment="Left" VerticalAlignment="Center" Margin="3,0,0,0">
+                                <Ellipse.RenderTransform>
+                                    <TranslateTransform x:Name="CountdownKnobOffset" X="0" />
+                                </Ellipse.RenderTransform>
+                                <Ellipse.Effect>
+                                    <DropShadowEffect BlurRadius="3" ShadowDepth="1" Opacity="0.25" Direction="270" />
+                                </Ellipse.Effect>
+                            </Ellipse>
+                        </Border>
+                    </Grid>
                 </Button>
 
                 <!-- 宠物大小 -->
@@ -196,6 +214,40 @@
                     <Slider x:Name="ButtonOpacitySlider" Style="{StaticResource Menu.Slider}"
                             Minimum="0" Maximum="100" ValueChanged="OnButtonOpacityChanged" />
                 </StackPanel>
+
+                <Border Height="1" Background="#EDF1F8" Margin="6,5,6,5" />
+
+                <!-- 陪伴养成（第二轮新增）：使用天数 / 摸头 / 抽签 + 成就 -->
+                <StackPanel Margin="12,4,12,2">
+                    <Grid Margin="0,0,0,1">
+                        <TextBlock Text="陪伴养成" FontSize="12" Foreground="#1F2329" VerticalAlignment="Center" />
+                        <TextBlock x:Name="GrowthDaysValue" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   FontFamily="{StaticResource Font.Medium}" FontSize="12" Foreground="#317FFF" />
+                    </Grid>
+                    <TextBlock x:Name="GrowthStatsText" Text="摸头 0 次 · 抽签 0 次 · 分组 0 次"
+                               FontSize="10.5" Foreground="#8A94A6" TextTrimming="CharacterEllipsis"
+                               Margin="0,1,0,0" />
+                    <TextBlock x:Name="GrowthAchievementsText" Text="成就 0/10"
+                               FontSize="10.5" Foreground="#9AA3AF" TextTrimming="CharacterEllipsis"
+                               Margin="0,1,0,0" />
+                </StackPanel>
+                <Button x:Name="MenuGrowth" Style="{StaticResource Menu.ItemStretch}" Click="OnGrowthToggleClick">
+                    <Grid>
+                        <TextBlock Text="养成统计" VerticalAlignment="Center" />
+                        <Border x:Name="GrowthSwitch" Width="34" Height="19" CornerRadius="9.5"
+                                HorizontalAlignment="Right" VerticalAlignment="Center" Background="#D7DEEA">
+                            <Ellipse x:Name="GrowthKnob" Width="13" Height="13" Fill="White"
+                                     HorizontalAlignment="Left" VerticalAlignment="Center" Margin="3,0,0,0">
+                                <Ellipse.RenderTransform>
+                                    <TranslateTransform x:Name="GrowthKnobOffset" X="0" />
+                                </Ellipse.RenderTransform>
+                                <Ellipse.Effect>
+                                    <DropShadowEffect BlurRadius="3" ShadowDepth="1" Opacity="0.25" Direction="270" />
+                                </Ellipse.Effect>
+                            </Ellipse>
+                        </Border>
+                    </Grid>
+                </Button>
 
                 <Border Height="1" Background="#EDF1F8" Margin="6,5,6,5" />
 
@@ -241,6 +293,8 @@
                     <TextBlock Text="杀死整个程序" Foreground="#E5484D" />
                 </Button>
             </StackPanel>
+            </ScrollViewer>
         </Border>
     </Grid>
 </Window>
+

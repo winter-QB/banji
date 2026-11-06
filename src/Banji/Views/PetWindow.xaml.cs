@@ -1,6 +1,5 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -16,13 +15,14 @@ using Banji.Core.Quips;
 namespace Banji.Views;
 
 /// <summary>
-/// 桌面宠物主窗口：透明无边框置顶、吸附屏幕右侧、可拖动、整体随 UiScale 无级缩放。
-/// 承载：宠物本体、常驻信息框（3 行）、当天课表面板、头顶两个小三角、左下角功能区三角。
+/// 桌面宠物主窗口（第二轮改版）：透明无边框置顶、吸附屏幕右侧、可拖动、整体随 UiScale 无级缩放。
+/// 承载：方形宠物本体、常驻信息（含考试 D-Day 行）、当天课表、头顶两个小三角、左下角功能区三角。
+/// 第二轮起课表/信息**不再有卡片背景**，改为“白字 + 文字背后黑色重高斯模糊光晕”直接悬浮桌面。
 /// 同时负责协调 <see cref="BubbleWindow"/>（台词/抽签/计时）与 <see cref="MenuFlyout"/>。
 /// </summary>
 public partial class PetWindow : Window
 {
-    private readonly QuipLibrary _quips = new();
+    private readonly QuipProvider _quips = new();
     private readonly BubbleWindow _bubble;
     private readonly DispatcherTimer _topmostTimer;
 
@@ -32,14 +32,16 @@ public partial class PetWindow : Window
     private readonly FontFamily _fontMedium;
     private readonly FontFamily _fontBold;
 
-    private readonly SolidColorBrush _textBrush = FrozenBrush("#2B3444");
-    private readonly SolidColorBrush _secondaryBrush = FrozenBrush("#55617A");
-    private readonly SolidColorBrush _mutedBrush = FrozenBrush("#8A94A6");
-    private readonly SolidColorBrush _faintBrush = FrozenBrush("#A2ABBB");
+    // 第二轮：课表/信息框去掉卡片背景，改为“白色文字 + 背后黑色重高斯模糊光晕”的悬浮文字方案。
+    private static readonly SolidColorBrush WhiteBrush = FrozenBrush("#FFFFFF");
+    private static readonly SolidColorBrush WhiteSoftBrush = FrozenBrush("#F2FFFFFF");
+    private static readonly SolidColorBrush WhiteMutedBrush = FrozenBrush("#D9FFFFFF");
+    private static readonly SolidColorBrush WhiteFaintBrush = FrozenBrush("#BFFFFFFF");
+    private static readonly SolidColorBrush BrandLightBrush = FrozenBrush("#9CC3FF");
+    private static readonly SolidColorBrush WarningBrush = FrozenBrush("#FF6B6B");
+    private static readonly SolidColorBrush ToolTipTextBrush = FrozenBrush("#1F2329");
 
     private SolidColorBrush _accentBrush = FrozenBrush("#FF3030");
-    private SolidColorBrush _accentSoftBrush = FrozenBrush("#99FF3030");
-    private SolidColorBrush _accentTintBrush = FrozenBrush("#1FFF3030");
     private SolidColorBrush _brandBrush = FrozenBrush("#317FFF");
 
     private ScheduleSnapshot _snapshot = ScheduleSnapshot.Empty(DateTime.Now);
@@ -142,6 +144,44 @@ public partial class PetWindow : Window
     }
 
     // =========================================================================
+    // QA / 自动化入口（Lead 的 --cmd quip [text] / --cmd pat 会调用）
+    // =========================================================================
+
+    /// <summary>QA：显示一条摸头气泡；text 为空时随机出一条（长文本可用于验证多行排版）。</summary>
+    public void ShowTestQuip(string? text = null)
+    {
+        try
+        {
+            var content = string.IsNullOrWhiteSpace(text) ? _quips.Next(Settings.UseLocalQuipGenerator) : text.Trim();
+            _bubble.ShowQuip(content);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("QA 显示摸头气泡失败", ex);
+        }
+    }
+
+    /// <summary>QA：等价于摸头——播放点击反馈 + 触发台词气泡 + 养成统计摸头 +1。</summary>
+    public void TestPat()
+    {
+        try
+        {
+            Pet.PlayTouchReaction();
+            if (Settings.EnableGrowth)
+            {
+                try { AppServices.Current.Growth.RecordPat(); }
+                catch (Exception ex) { Log.Error("记录摸头失败", ex); }
+            }
+            if (!Settings.EnableQuips) return;
+            _bubble.ShowQuip(_quips.Next(Settings.UseLocalQuipGenerator));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("摸摸宠物失败", ex);
+        }
+    }
+
+    // =========================================================================
     // 初始化
     // =========================================================================
 
@@ -172,7 +212,7 @@ public partial class PetWindow : Window
             Pet.ApplySettings(settings.Pet, settings.PetBlinkEnabled, settings.PetBobEnabled);
             ApplyScale(settings.UiScale);
             Topmost = settings.AlwaysOnTop;
-            TimetableCard.Visibility = settings.ShowTimetablePanel ? Visibility.Visible : Visibility.Collapsed;
+            TimetablePanel.Visibility = settings.ShowTimetablePanel ? Visibility.Visible : Visibility.Collapsed;
             UpdateTriangleStates();
 
             LoadPreviewTime();
@@ -419,19 +459,7 @@ public partial class PetWindow : Window
         return new Point(point.X / scaleX, point.Y / scaleY);
     }
 
-    private void OnPetTouched()
-    {
-        try
-        {
-            Pet.PlayTouchReaction();
-            if (!Settings.EnableQuips) return;
-            _bubble.ShowQuip(_quips.Next());
-        }
-        catch (Exception ex)
-        {
-            Log.Error("摸摸宠物失败", ex);
-        }
-    }
+    private void OnPetTouched() => TestPat();
 
     // =========================================================================
     // 小三角 & 功能区
@@ -563,7 +591,7 @@ public partial class PetWindow : Window
             Text = text,
             FontFamily = _fontRegular,
             FontSize = 12,
-            Foreground = _textBrush
+            Foreground = ToolTipTextBrush
         };
         button.ToolTip = new ToolTip { Content = block, Placement = System.Windows.Controls.Primitives.PlacementMode.Top };
     }
@@ -644,7 +672,7 @@ public partial class PetWindow : Window
             if (Topmost != settings.AlwaysOnTop) Topmost = settings.AlwaysOnTop;
 
             var target = settings.ShowTimetablePanel ? Visibility.Visible : Visibility.Collapsed;
-            if (TimetableCard.Visibility != target) TimetableCard.Visibility = target;
+            if (TimetablePanel.Visibility != target) TimetablePanel.Visibility = target;
 
             var signature = BuildSettingsSignature(settings);
             if (signature != _settingsSignature)
@@ -676,14 +704,14 @@ public partial class PetWindow : Window
             settings.Pet.BodyShadeColor,
             settings.Pet.EyeColor,
             settings.Buttons.AccentColor,
-            settings.Buttons.IdleColor);
+            settings.Buttons.IdleColor,
+            settings.ShowCountdownOnPet,
+            string.Join(";", settings.CountdownEvents.Select(c => $"{c.Id}:{c.Name}:{c.Date:yyyyMMdd}:{c.Enabled}:{c.Color}")));
     }
 
     private void RefreshAccentBrushes(Core.Settings.AppSettings settings)
     {
         _accentBrush = SolidBrush(settings.Buttons.AccentColor, Color.FromRgb(0xFF, 0x30, 0x30), 255);
-        _accentSoftBrush = SolidBrush(settings.Buttons.AccentColor, Color.FromRgb(0xFF, 0x30, 0x30), 160);
-        _accentTintBrush = SolidBrush(settings.Buttons.AccentColor, Color.FromRgb(0xFF, 0x30, 0x30), 26);
         _brandBrush = SolidBrush(settings.Buttons.IdleColor, Color.FromRgb(0x31, 0x7F, 0xFF), 255);
     }
 
@@ -735,62 +763,91 @@ public partial class PetWindow : Window
         var primary = PetUiFormatter.Primary(snapshot, overrun);
         var school = PetUiFormatter.School(snapshot);
         var course = PetUiFormatter.Course(snapshot);
+        var lines = new List<IReadOnlyList<HaloSegment>>();
 
         // 行 1：距下课 / 距上课 / 已放学 / 下课超时
-        InfoRow1.Inlines.Clear();
+        var row1 = new List<HaloSegment>();
         if (!string.IsNullOrEmpty(primary.Label))
         {
-            var labelBrush = primary.IsOverrun ? _accentBrush : _mutedBrush;
-            InfoRow1.Inlines.Add(MakeRun(primary.Label + " ", _fontLight, 10, labelBrush));
+            var labelBrush = primary.IsOverrun ? WarningBrush : WhiteMutedBrush;
+            row1.Add(new HaloSegment(primary.Label + " ", _fontLight, 10.5, labelBrush));
         }
         if (!string.IsNullOrEmpty(primary.Value))
         {
-            var valueBrush = primary.IsOverrun ? _accentBrush : _textBrush;
-            var size = string.IsNullOrEmpty(primary.Label) ? 14 : 15.5;
-            InfoRow1.Inlines.Add(MakeRun(primary.Value, _fontMedium, size, valueBrush));
+            var valueBrush = primary.IsOverrun ? WarningBrush : WhiteBrush;
+            var size = string.IsNullOrEmpty(primary.Label) ? 14.5 : 16.5;
+            row1.Add(new HaloSegment(primary.Value, _fontMedium, size, valueBrush));
         }
         else
         {
-            InfoRow1.Inlines.Add(MakeRun("—", _fontMedium, 13, _mutedBrush));
+            row1.Add(new HaloSegment("—", _fontMedium, 14, WhiteMutedBrush));
         }
+        lines.Add(row1);
 
         // 行 2：距放学 h:mm:ss + 剩余节数
-        InfoRow2.Inlines.Clear();
+        var row2 = new List<HaloSegment>();
         if (!string.IsNullOrEmpty(school.Label))
         {
-            InfoRow2.Inlines.Add(MakeRun(school.Label + " ", _fontLight, 9.5, _mutedBrush));
-            InfoRow2.Inlines.Add(MakeRun(school.Value, _fontMedium, 11.5, _secondaryBrush));
+            row2.Add(new HaloSegment(school.Label + " ", _fontLight, 9.5, WhiteMutedBrush));
+            row2.Add(new HaloSegment(school.Value, _fontMedium, 11.5, WhiteSoftBrush));
             if (!string.IsNullOrEmpty(school.Suffix))
-                InfoRow2.Inlines.Add(MakeRun(school.Suffix, _fontLight, 9.5, _mutedBrush));
+                row2.Add(new HaloSegment(school.Suffix, _fontLight, 9.5, WhiteMutedBrush));
         }
         else if (!string.IsNullOrEmpty(school.Value))
         {
-            InfoRow2.Inlines.Add(MakeRun(school.Value, _fontLight, 10.5, _mutedBrush));
+            row2.Add(new HaloSegment(school.Value, _fontLight, 10.5, WhiteMutedBrush));
         }
+        lines.Add(row2);
 
         // 行 3：现在 / 下节课程名
-        InfoRow3.Inlines.Clear();
+        var row3 = new List<HaloSegment>();
         if (!string.IsNullOrEmpty(course.Value1) || !string.IsNullOrEmpty(course.Value2))
         {
             if (!string.IsNullOrEmpty(course.Prefix1) && !string.IsNullOrEmpty(course.Value1))
             {
-                InfoRow3.Inlines.Add(MakeRun(course.Prefix1 + " ", _fontLight, 9.5, _mutedBrush));
-                InfoRow3.Inlines.Add(MakeRun(course.Value1, _fontMedium, 11.5, _textBrush));
+                row3.Add(new HaloSegment(course.Prefix1 + " ", _fontLight, 9.5, WhiteMutedBrush));
+                row3.Add(new HaloSegment(course.Value1, _fontMedium, 11.5, WhiteBrush));
             }
             else if (!string.IsNullOrEmpty(course.Value1))
             {
-                InfoRow3.Inlines.Add(MakeRun(course.Value1, _fontLight, 10.5, _mutedBrush));
+                row3.Add(new HaloSegment(course.Value1, _fontLight, 10.5, WhiteMutedBrush));
             }
             if (!string.IsNullOrEmpty(course.Prefix2) && !string.IsNullOrEmpty(course.Value2))
             {
-                InfoRow3.Inlines.Add(MakeRun(" " + course.Prefix2.TrimStart() + " ", _fontLight, 9.5, _mutedBrush));
-                InfoRow3.Inlines.Add(MakeRun(course.Value2, _fontMedium, 11.5, _brandBrush));
+                row3.Add(new HaloSegment(" " + course.Prefix2.TrimStart() + " ", _fontLight, 9.5, WhiteMutedBrush));
+                row3.Add(new HaloSegment(course.Value2, _fontMedium, 11.5, BrandLightBrush));
             }
         }
         else
         {
-            InfoRow3.Inlines.Add(MakeRun("—", _fontLight, 10.5, _mutedBrush));
+            row3.Add(new HaloSegment("—", _fontLight, 10.5, WhiteMutedBrush));
         }
+        lines.Add(row3);
+
+        // 行 4：考试/重要日期倒计时（第二轮新增 D-Day）
+        var settings = Settings;
+        var countdown = settings.ShowCountdownOnPet
+            ? PetUiFormatter.NextCountdown(settings.CountdownEvents, DateOnly.FromDateTime(_previewTime ?? DateTime.Now))
+            : null;
+        if (countdown is { } dday)
+        {
+            var accent = new SolidColorBrush(ParseColor(dday.Color, Color.FromRgb(0xFF, 0x6B, 0x6B)));
+            accent.Freeze();
+            if (dday.IsToday)
+            {
+                lines.Add(new[] { new HaloSegment(dday.Text, _fontBold, 13, accent, FontWeights.Bold) });
+            }
+            else
+            {
+                lines.Add(new[]
+                {
+                    new HaloSegment($"距{dday.Name} ", _fontLight, 10.5, WhiteSoftBrush),
+                    new HaloSegment($"{dday.DaysLeft} 天", _fontBold, 13, accent, FontWeights.Bold)
+                });
+            }
+        }
+
+        InfoBody.SetLines(lines);
     }
 
     private void RefreshTimetable(ScheduleSnapshot snapshot, bool force)
@@ -807,15 +864,14 @@ public partial class PetWindow : Window
         if (!force && signature == _timetableSignature) return;
         _timetableSignature = signature;
 
-        TimetableTitle.Text = PetUiFormatter.TimetableTitle(_previewTime ?? DateTime.Now);
-        TimetableRows.Children.Clear();
+        TimetableTitle.SetText(PetUiFormatter.TimetableTitle(_previewTime ?? DateTime.Now),
+            _fontLight, 10.5, WhiteMutedBrush);
 
         var hasToday = snapshot.HasTimetable && today.Count > 0;
-        TimetableMeta.Text = hasToday ? $"共 {today.Count} 节" : "";
         if (!hasToday)
         {
-            TimetableEmpty.Visibility = Visibility.Visible;
-            TimetableEmpty.Text = snapshot.Phase == SchedulePhase.NoTimetable ? "暂无课表" : "今天没有课";
+            TimetableBody.Clear();
+            SetTimetableHint(snapshot.Phase == SchedulePhase.NoTimetable ? "暂无课表" : "今天没有课");
             return;
         }
 
@@ -833,93 +889,57 @@ public partial class PetWindow : Window
             var last = today.LastOrDefault();
             if (last is null || snapshot.Phase == SchedulePhase.AfterSchool)
             {
-                TimetableEmpty.Visibility = Visibility.Visible;
-                TimetableEmpty.Text = "今天的课已上完";
+                TimetableBody.Clear();
+                SetTimetableHint("今天的课已上完");
                 return;
             }
             rows = new[] { last };
         }
 
-        TimetableEmpty.Visibility = Visibility.Collapsed;
+        var maxCourseChars = Math.Clamp(rows.Max(c => c.CourseDisplay.Length), 2, 6);
+        var lines = new List<IReadOnlyList<HaloSegment>>(rows.Count);
         foreach (var course in rows)
         {
             var isHighlight = highlighted is not null && course.PeriodIndex == highlighted.PeriodIndex;
-            TimetableRows.Children.Add(BuildTimetableRow(course, isHighlight));
+            lines.Add(BuildTimetableLine(course, isHighlight, maxCourseChars));
         }
+
+        TimetableEmpty.Visibility = Visibility.Collapsed;
+        TimetableBody.SetLines(lines);
     }
 
-    private Border BuildTimetableRow(CourseOccurrence course, bool isHighlight)
+    private void SetTimetableHint(string text)
     {
-        var row = new Border
-        {
-            Height = 21,
-            CornerRadius = new CornerRadius(6),
-            Padding = new Thickness(3, 0, 5, 0),
-            Margin = new Thickness(0, 0, 0, 1),
-            Background = isHighlight ? _accentTintBrush : Brushes.Transparent
-        };
-
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(4) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(13) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var bar = new Border
-        {
-            Width = 2.5,
-            CornerRadius = new CornerRadius(1.25),
-            Background = isHighlight ? _accentBrush : Brushes.Transparent,
-            Margin = new Thickness(0, 4, 0, 4),
-            HorizontalAlignment = HorizontalAlignment.Left
-        };
-        Grid.SetColumn(bar, 0);
-        grid.Children.Add(bar);
-
-        var isPast = course.Status == CourseStatus.Past;
-        var indexBrush = isHighlight ? _accentSoftBrush : _faintBrush;
-        var courseBrush = isHighlight ? _accentBrush : (isPast ? _faintBrush : _textBrush);
-
-        var index = new TextBlock
-        {
-            Text = PetUiFormatter.PeriodTag(course),
-            FontFamily = _fontLight,
-            FontSize = 9,
-            Foreground = indexBrush,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        Grid.SetColumn(index, 1);
-        grid.Children.Add(index);
-
-        var courseText = new TextBlock
-        {
-            Text = course.CourseDisplay,
-            FontFamily = isHighlight ? _fontBold : _fontMedium,
-            FontWeight = isHighlight ? FontWeights.Bold : FontWeights.Normal,
-            FontSize = isHighlight ? 12.5 : 12,
-            Foreground = courseBrush,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextTrimming = TextTrimming.CharacterEllipsis
-        };
-        Grid.SetColumn(courseText, 2);
-        grid.Children.Add(courseText);
-
-        var time = new TextBlock
-        {
-            Text = PetUiFormatter.CourseTime(course),
-            FontFamily = _fontLight,
-            FontSize = 8.5,
-            Foreground = isHighlight ? _accentSoftBrush : _faintBrush,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(6, 0, 0, 0)
-        };
-        Grid.SetColumn(time, 3);
-        grid.Children.Add(time);
-
-        row.Child = grid;
-        return row;
+        TimetableEmpty.SetText(text, _fontLight, 10.5, WhiteMutedBrush);
+        TimetableEmpty.Visibility = Visibility.Visible;
     }
 
+    /// <summary>
+    /// 课表一行：用全角空格做列对齐（节次 / 课程名 / 开始时间），纯文字无卡片背景；
+    /// 强调行保留 #FF3030 红色（第三轮仍保留强调色）。
+    /// </summary>
+    private List<HaloSegment> BuildTimetableLine(CourseOccurrence course, bool isHighlight, int maxCourseChars)
+    {
+        var isPast = course.Status == CourseStatus.Past;
+        var indexBrush = isHighlight ? WarningBrush : WhiteFaintBrush;
+        var courseBrush = isHighlight ? _accentBrush : (isPast ? WhiteMutedBrush : WhiteSoftBrush);
+
+        var index = PetUiFormatter.PeriodTag(course).PadLeft(2, '　') + "　";
+
+        var courseText = course.CourseDisplay;
+        if (courseText.Length < maxCourseChars)
+            courseText += new string('　', maxCourseChars - courseText.Length);
+
+        return new List<HaloSegment>
+        {
+            new(index, _fontLight, 9, indexBrush),
+            new(courseText, isHighlight ? _fontBold : _fontMedium,
+                isHighlight ? 12.5 : 12, courseBrush,
+                isHighlight ? FontWeights.Bold : FontWeights.Normal),
+            new("　" + PetUiFormatter.CourseTime(course), _fontLight, 8.5,
+                isHighlight ? WarningBrush : WhiteFaintBrush)
+        };
+    }
     // =========================================================================
     // 清理
     // =========================================================================
@@ -952,13 +972,6 @@ public partial class PetWindow : Window
     // 小工具
     // =========================================================================
 
-    private Run MakeRun(string text, FontFamily family, double size, Brush brush)
-        => new(text)
-        {
-            FontFamily = family,
-            FontSize = size,
-            Foreground = brush
-        };
 
     private static SolidColorBrush FrozenBrush(string hex)
     {
@@ -982,6 +995,12 @@ public partial class PetWindow : Window
         catch { return fallback; }
     }
 }
+
+
+
+
+
+
 
 
 

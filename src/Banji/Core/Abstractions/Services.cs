@@ -37,6 +37,13 @@ public interface IRosterService
     RosterImportPreview PreviewImport(string filePath);
     /// <summary>按预览/选项真正导入并保存。</summary>
     Roster Import(string filePath, RosterImportOptions options);
+
+    /// <summary>给学生加减积分（抽中答题 +1 等），并立即保存。</summary>
+    void AddPoints(string rosterId, string studentKey, int delta);
+    /// <summary>清空某份花名册所有学生的积分。</summary>
+    void ResetPoints(string rosterId);
+    /// <summary>积分排行（降序，含 0 分的也返回）。</summary>
+    IReadOnlyList<StudentPoints> TopPoints(string rosterId, int count = 10);
 }
 
 public interface IPickService
@@ -80,6 +87,9 @@ public interface IScheduleService
     /// <summary>纯函数：任意时刻的课表快照（不依赖真实时钟，便于测试）。</summary>
     ScheduleSnapshot SnapshotAt(DateTime now);
     event EventHandler? Changed;
+
+    /// <summary>从 now 起接下来的时间边界（上课/下课/放学，已应用铃声误差），供铃声校准向导使用。</summary>
+    IReadOnlyList<ClassBoundary> UpcomingBoundaries(DateTime now, int count = 6);
 }
 
 public interface IClassClock

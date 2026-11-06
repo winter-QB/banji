@@ -149,6 +149,86 @@ public sealed class ScheduleService : IScheduleService
         return timetable.EntriesFor(day).Any(e => !string.IsNullOrWhiteSpace(e.Course));
     }
 
+    public IReadOnlyList<ClassBoundary> UpcomingBoundaries(DateTime now, int count = 6)
+    {
+        count = Math.Clamp(count, 1, 60);
+        var timetable = _timetable.Current;
+        if (timetable is null || timetable.Periods.Count == 0)
+            return Array.Empty<ClassBoundary>();
+
+        var raw = new List<ClassBoundary>();
+
+        // 从今天起向后最多看 8 天：今天不足时用未来几天补满（跨天/周末/假期都能覆盖）。
+        const int maxDays = 8;
+        for (var dayOffset = 0; dayOffset <= maxDays && raw.Count < count * 4; dayOffset++)
+        {
+            var date = now.Date.AddDays(dayOffset);
+
+            // 用当天中午的快照取“当天完整课程”（含临时换课/取消/铃声误差），与当前 phase 无关。
+            var daySnapshot = SnapshotAt(date.AddHours(12));
+            if (daySnapshot.Today.Count == 0) continue;
+
+            foreach (var occ in daySnapshot.Today)
+            {
+                var title = string.IsNullOrWhiteSpace(occ.Course) ? occ.PeriodName : occ.Course.Trim();
+                if (occ.Start > now)
+                {
+                    raw.Add(new ClassBoundary
+                    {
+                        Time = occ.Start,
+                        Kind = ClassBoundaryKind.ClassStart,
+                        Title = $"{title} 上课",
+                        PeriodIndex = occ.PeriodIndex
+                    });
+                }
+                if (occ.End > now)
+                {
+                    raw.Add(new ClassBoundary
+                    {
+                        Time = occ.End,
+                        Kind = ClassBoundaryKind.ClassEnd,
+                        Title = $"{title} 下课",
+                        PeriodIndex = occ.PeriodIndex
+                    });
+                }
+            }
+
+            // 当天放学的铃声也要能校准（最后一节下课后）
+            if (daySnapshot.SchoolEnd is { } schoolEnd && schoolEnd > now)
+            {
+                raw.Add(new ClassBoundary
+                {
+                    Time = schoolEnd,
+                    Kind = ClassBoundaryKind.SchoolEnd,
+                    Title = "放学",
+                    PeriodIndex = 0
+                });
+            }
+        }
+
+        // 排序 + 去重：同一时刻同一类型只保留一个；
+        // “最后一节下课”与“放学”同一时刻时只保留更明确的“放学”。
+        var ordered = raw.OrderBy(b => b.Time).ThenBy(b => (int)b.Kind).ToList();
+        var deduped = new List<ClassBoundary>(ordered.Count);
+        var seen = new HashSet<(DateTime Time, ClassBoundaryKind Kind)>();
+        foreach (var boundary in ordered)
+        {
+            if (seen.Add((boundary.Time, boundary.Kind))) deduped.Add(boundary);
+        }
+
+        var schoolEndTimes = new HashSet<DateTime>(
+            deduped.Where(b => b.Kind == ClassBoundaryKind.SchoolEnd).Select(b => b.Time));
+
+        var result = new List<ClassBoundary>(count);
+        foreach (var boundary in deduped)
+        {
+            if (boundary.Kind == ClassBoundaryKind.ClassEnd && schoolEndTimes.Contains(boundary.Time)) continue;
+            result.Add(boundary);
+            if (result.Count >= count) break;
+        }
+        return result;
+    }
+
     /// <summary>按课表结构 + 临时换课，生成当天所有“实际要上的课”（已应用铃声误差偏移）。</summary>
     private static List<CourseOccurrence> BuildOccurrences(
         WeekTimetable timetable, DayOfWeek day, DateTime date, TimeSpan offset, DayOverride? dayOverride)

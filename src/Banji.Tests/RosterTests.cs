@@ -448,6 +448,116 @@ public static class RosterTests
     }
 
     // =========================================================================
+    // 第二轮：课堂积分
+    // =========================================================================
+
+    [BanjiTest]
+    public static void 积分_加减分持久化与排行榜()
+    {
+        using var ws = new TempWorkspace();
+        var settings = new FakeSettingsService();
+        var file = ws.File("rosters.json");
+        var svc = new RosterService(settings, file, () => FixedNow);
+        var roster = svc.CreateManual("积分班", new[]
+        {
+            new Student { Id = "20260101", Name = "王浩然", Score = 95 },
+            new Student { Id = "20260102", Name = "李思远", Score = 88 },
+            new Student { Id = "20260103", Name = "张雨桐", Score = 80 },
+            new Student { Id = "20260104", Name = "刘一诺", Score = 70 }
+        });
+        svc.SetActive(roster.Id);
+
+        var changed = 0;
+        svc.Changed += (_, _) => changed++;
+
+        svc.AddPoints(roster.Id, "20260101", 3);
+        svc.AddPoints(roster.Id, "20260102", 1);
+        svc.AddPoints(roster.Id, "20260103", 2);
+        svc.AddPoints(roster.Id, "20260103", -1);
+        Assert.Equal(4, changed, "每次加减分都应广播 Changed");
+
+        var current = svc.Get(roster.Id)!;
+        Assert.Equal(3, current.Students.First(s => s.Id == "20260101").Points);
+        Assert.Equal(1, current.Students.First(s => s.Id == "20260102").Points);
+        Assert.Equal(1, current.Students.First(s => s.Id == "20260103").Points);
+        Assert.Equal(0, current.Students.First(s => s.Id == "20260104").Points);
+
+        // 落盘并重新加载
+        var reloaded = new RosterService(settings, file, () => FixedNow);
+        Assert.Equal(3, reloaded.Get(roster.Id)!.Students.First(s => s.Id == "20260101").Points);
+
+        // 排行榜：降序、含 0 分、count 截断
+        var top = reloaded.TopPoints(roster.Id);
+        Assert.Equal(4, top.Count);
+        Assert.Equal("20260101", top[0].StudentId);
+        Assert.Equal(3, top[0].Points);
+        Assert.Equal(0, top[^1].Points, "0 分的学生也要出现在排行榜里");
+        Assert.Equal(2, reloaded.TopPoints(roster.Id, 2).Count);
+        Assert.Equal(0, reloaded.TopPoints(roster.Id, 0).Count);
+        Assert.Equal(0, reloaded.TopPoints("不存在的名单", 5).Count);
+    }
+
+    [BanjiTest]
+    public static void 积分_清零与非法参数校验()
+    {
+        using var ws = new TempWorkspace();
+        var settings = new FakeSettingsService();
+        var svc = new RosterService(settings, ws.File("rosters.json"), () => FixedNow);
+        var roster = svc.CreateManual("清零班", new[]
+        {
+            new Student { Id = "1", Name = "甲" },
+            new Student { Id = "2", Name = "乙" }
+        });
+
+        svc.AddPoints(roster.Id, "1", 2);
+        svc.AddPoints(roster.Id, "2", 3);
+        Assert.True(svc.Get(roster.Id)!.Students.Any(s => s.Points > 0));
+
+        svc.ResetPoints(roster.Id);
+        Assert.True(svc.Get(roster.Id)!.Students.All(s => s.Points == 0), "清零后所有学生积分应为 0");
+        svc.ResetPoints(roster.Id); // 已经是 0，再清零不应抛异常
+
+        // 非法参数：友好中文提示
+        var missingRoster = Assert.Throws<InvalidOperationException>(() => svc.AddPoints("不存在", "1", 1));
+        Assert.True(missingRoster.Message.Contains("花名册"));
+        var missingStudent = Assert.Throws<InvalidOperationException>(() => svc.AddPoints(roster.Id, "不存在", 1));
+        Assert.True(missingStudent.Message.Contains("学生"));
+
+        // delta = 0 无副作用；超大 delta 会被收敛到 ±1000
+        svc.AddPoints(roster.Id, "1", 0);
+        Assert.Equal(0, svc.Get(roster.Id)!.Students.First(s => s.Id == "1").Points);
+        svc.AddPoints(roster.Id, "1", 5000);
+        Assert.Equal(1000, svc.Get(roster.Id)!.Students.First(s => s.Id == "1").Points);
+        svc.AddPoints(roster.Id, "1", -5000);
+        Assert.Equal(0, svc.Get(roster.Id)!.Students.First(s => s.Id == "1").Points);
+    }
+
+    [BanjiTest]
+    public static void 花名册_旧版JSON没有积分字段也能兼容()
+    {
+        using var ws = new TempWorkspace();
+        var file = ws.File("rosters.json");
+        // 第一轮格式：Student 没有 points 字段
+        var legacyJson =
+            "[{\"id\":\"r-old\",\"name\":\"旧版花名册\",\"subject\":\"数学\",\"sortMode\":\"score\"," +
+            "\"students\":[{\"id\":\"20260101\",\"name\":\"张三\",\"score\":90}," +
+            "{\"id\":\"20260102\",\"name\":\"李四\"}]}]";
+        File.WriteAllText(file, legacyJson, new UTF8Encoding(false));
+
+        var settings = new FakeSettingsService();
+        var svc = new RosterService(settings, file, () => FixedNow);
+        Assert.Equal(1, svc.Rosters.Count);
+        var roster = svc.Get("r-old")!;
+        Assert.Equal(2, roster.Students.Count);
+        Assert.True(roster.Students.All(s => s.Points == 0), "旧 JSON 缺少积分字段时应默认为 0");
+        Assert.Equal(RosterSortMode.Score, roster.SortMode, "旧 JSON 的排序模式应正常反序列化");
+
+        svc.AddPoints("r-old", "20260101", 5);
+        var reloaded = new RosterService(settings, file, () => FixedNow);
+        Assert.Equal(5, reloaded.Get("r-old")!.Students.First(s => s.Id == "20260101").Points);
+    }
+
+    // =========================================================================
     // 内部：xlsx 生成（不依赖第三方库）
     // =========================================================================
 

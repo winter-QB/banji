@@ -1,4 +1,4 @@
-<Window x:Class="Banji.Views.BubbleWindow"
+﻿<Window x:Class="Banji.Views.BubbleWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="BanjiBubble"
@@ -16,7 +16,7 @@
         SnapsToDevicePixels="True"
         UseLayoutRounding="True"
         TextOptions.TextFormattingMode="Ideal">
-    <!-- 对话气泡：白底半透明（可调）+ 可选高斯模糊底 + 2px #3E6BFF 描边 + #2E69FF 文字。
+    <!-- 对话气泡（第二轮用户要求）：默认不透明白底、不使用高斯模糊底；2px #3E6BFF 描边 + #2E69FF 文字。
          独立置顶窗口，每次显示重新 SetWindowPos(HWND_TOPMOST)；不抢焦点。 -->
     <Grid x:Name="Outer" Margin="20,18,26,24">
         <Border x:Name="Card"
@@ -43,10 +43,10 @@
                     <Grid x:Name="QuipPanel" Visibility="Collapsed" MinWidth="112">
                         <TextBlock x:Name="QuipMeasure" Opacity="0" IsHitTestVisible="False"
                                    FontFamily="{StaticResource Font.Regular}"
-                                   TextWrapping="Wrap" LineHeight="1.45" LineStackingStrategy="BlockLineHeight" />
+                                   TextWrapping="Wrap" LineStackingStrategy="BlockLineHeight" />
                         <TextBlock x:Name="QuipText"
                                    FontFamily="{StaticResource Font.Regular}"
-                                   TextWrapping="Wrap" LineHeight="1.45" LineStackingStrategy="BlockLineHeight" />
+                                   TextWrapping="Wrap" LineStackingStrategy="BlockLineHeight" />
                     </Grid>
 
                     <!-- 抽签结果：顶部左对齐 Thin 小字 + 固定中字号 Bold 居中“学号” + 大字号 Bold 居中“姓名” -->
@@ -76,4 +76,5 @@
         </Border>
     </Grid>
 </Window>
+
 

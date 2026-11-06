@@ -163,5 +163,76 @@ public static class QuipFormatterTests
         Assert.Equal("今天 · 周五", PetUiFormatter.TimetableTitle(new DateTime(2026, 10, 30)));
         Assert.Equal("今天 · 周日", PetUiFormatter.TimetableTitle(new DateTime(2026, 11, 1)));
     }
+
+    // =========================================================================
+    // 第二轮新增：考试倒计时（D-Day）
+    // =========================================================================
+
+    [BanjiTest]
+    public static void 考试倒计时选择最近且未过期的事件()
+    {
+        var today = new DateOnly(2026, 11, 6);
+        var events = new List<CountdownEventItem>
+        {
+            new() { Name = "高考", Date = new DateOnly(2027, 6, 7), Enabled = true },
+            new() { Name = "期末考试", Date = today.AddDays(45), Enabled = true },
+            new() { Name = "校运动会", Date = today.AddDays(12), Enabled = true },
+            new() { Name = "已经过去的活动", Date = today.AddDays(-3), Enabled = true },
+            new() { Name = "已关闭的考试", Date = today.AddDays(1), Enabled = false },
+            new() { Name = "", Date = today, Enabled = true }
+        };
+
+        var line = PetUiFormatter.NextCountdown(events, today);
+        Assert.NotNull(line);
+        Assert.Equal("校运动会", line!.Value.Name);
+        Assert.Equal(12, line.Value.DaysLeft);
+        Assert.Equal("距校运动会 12 天", line.Value.Text);
+        Assert.False(line.Value.IsToday);
+    }
+
+    [BanjiTest]
+    public static void 考试就是今天()
+    {
+        var today = new DateOnly(2026, 6, 7);
+        var events = new List<CountdownEventItem>
+        {
+            new() { Name = "高考", Date = today, Enabled = true },
+            new() { Name = "期末考试", Date = today.AddDays(30), Enabled = true }
+        };
+
+        var line = PetUiFormatter.NextCountdown(events, today);
+        Assert.NotNull(line);
+        Assert.True(line!.Value.IsToday);
+        Assert.Equal("高考就是今天！", line.Value.Text);
+        Assert.Equal(0, line.Value.DaysLeft);
+    }
+
+    [BanjiTest]
+    public static void 考试倒计时跨年天数正确()
+    {
+        var today = new DateOnly(2026, 11, 6);
+        var events = new List<CountdownEventItem>
+        {
+            new() { Name = "高考", Date = new DateOnly(2027, 6, 7), Enabled = true }
+        };
+
+        var line = PetUiFormatter.NextCountdown(events, today);
+        Assert.NotNull(line);
+        Assert.Equal(213, line!.Value.DaysLeft);
+        Assert.Equal("距高考 213 天", line.Value.Text);
+    }
+
+    [BanjiTest]
+    public static void 没有可用倒计时时返回空()
+    {
+        var today = new DateOnly(2026, 11, 6);
+        Assert.Null(PetUiFormatter.NextCountdown(null, today));
+        Assert.Null(PetUiFormatter.NextCountdown(new List<CountdownEventItem>(), today));
+        Assert.Null(PetUiFormatter.NextCountdown(new List<CountdownEventItem>
+        {
+            new() { Name = "过去的活动", Date = today.AddDays(-1), Enabled = true },
+            new() { Name = "关闭的活动", Date = today.AddDays(5), Enabled = false }
+        }, today));
+    }
 }
 

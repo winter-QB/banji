@@ -132,8 +132,12 @@ public partial class BubbleWindow : Window
             while (enumerator.MoveNext()) _textElements.Add((string)enumerator.Current);
 
             var fontSize = BubbleTypography.QuipFontSize(_fullText);
+            // 第二轮修复：WPF 的 TextBlock.LineHeight 是绝对像素，必须按字号换算，否则多行会叠字。
+            var lineHeight = BubbleTypography.LineHeightFor(fontSize);
             QuipText.FontSize = fontSize;
             QuipMeasure.FontSize = fontSize;
+            QuipText.LineHeight = lineHeight;
+            QuipMeasure.LineHeight = lineHeight;
             QuipMeasure.Text = _fullText;
             QuipText.Text = "";
             QuipText.MaxWidth = Math.Max(120, _style.MaxWidth - 48);
@@ -542,7 +546,8 @@ public partial class BubbleWindow : Window
         var textBrush = BrushOf(_style.TextColor, Color.FromRgb(0x2E, 0x69, 0xFF));
         var borderBrush = BrushOf(_style.BorderColor, Color.FromRgb(0x3E, 0x6B, 0xFF));
         var background = ColorOf(_style.BackgroundColor, Colors.White);
-        var alpha = (byte)Math.Clamp(_style.OpacityPercent * 255 / 100, 0, 255);
+        // 第二轮语义：OpacityPercent 表示“透明度”，0 = 完全不透明的白底（默认），50 = 半透明。
+        var alpha = (byte)Math.Clamp((100 - _style.OpacityPercent) * 255 / 100, 0, 255);
         var tint = new SolidColorBrush(Color.FromArgb(alpha, background.R, background.G, background.B));
         tint.Freeze();
 

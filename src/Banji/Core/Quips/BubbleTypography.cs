@@ -101,4 +101,26 @@ public static class BubbleTypography
     /// <summary>计时气泡顶部小标签：“倒计时”/“正计时”。</summary>
     public static string TimerLabel(TimerSnapshot? snapshot)
         => snapshot is { Kind: TimerKind.Stopwatch } ? "正计时" : "倒计时";
+
+    /// <summary>
+    /// 气泡文字行高（第二轮修复多行叠字 bug）。
+    /// 注意：WPF 的 TextBlock.LineHeight 是**绝对像素**，之前写 1.45 会被当成 1.45px 行高导致多行叠在一起；
+    /// 这里统一按字号倍数换算（1.45 倍字号），即 15px 字 → 约 22px 行高。
+    /// </summary>
+    public static double LineHeightFor(double fontSize)
+    {
+        if (double.IsNaN(fontSize) || fontSize <= 0) fontSize = 16;
+        return Math.Round(fontSize * 1.45, 1);
+    }
+
+    /// <summary>估算多行文字大概占几行（测试/排版用，不依赖 WPF 度量）。</summary>
+    public static int EstimateLineCount(string? text, double maxWidth, double fontSize)
+    {
+        if (string.IsNullOrEmpty(text)) return 1;
+        if (maxWidth <= 0 || fontSize <= 0) return 1;
+
+        var perLine = Math.Max(1.0, Math.Floor(maxWidth / fontSize));
+        var units = EstimateTextUnits(text);
+        return Math.Max(1, (int)Math.Ceiling(units / perLine));
+    }
 }

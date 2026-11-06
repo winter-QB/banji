@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using Banji.Controls.Toolbar;
 using Banji.Core.Boot;
 using Banji.Core.Infrastructure;
 using Banji.Core.Models;
@@ -9,16 +10,30 @@ namespace Banji.Views;
 
 /// <summary>
 /// 仪表盘：当前状态（现在/下一节/距下课/距上课/距放学/剩余节数，订阅 ClassClock.Tick 实时刷新）、
-/// 今日抽签统计、花名册规模与快捷操作。
+/// 今日抽签统计、考试 D-Day、积分排行、宠物养成统计、花名册规模与快捷操作。
 /// </summary>
 public partial class DashboardWindow : Window
 {
     private bool _subscribed;
     private string _todaySignature = "";
+    private string _pointsSignature = "";
+    private string _growthSignature = "";
+    private string _countdownSignature = "";
 
     public DashboardWindow()
     {
         InitializeComponent();
+        // 高窗口在小屏幕上自动收敛到工作区，避免超出屏幕（内容本身可滚动）
+        try
+        {
+            var work = SystemParameters.WorkArea;
+            MaxHeight = Math.Max(MinHeight, work.Height - 24);
+            MaxWidth = Math.Max(MinWidth, work.Width - 24);
+        }
+        catch
+        {
+            // 极端环境取默认值
+        }
         Loaded += OnLoaded;
         Closed += OnClosed;
     }
@@ -37,6 +52,7 @@ public partial class DashboardWindow : Window
         svc.Picker.Picked += OnPicked;
         svc.Rosters.Changed += OnSimpleChanged;
         svc.Settings.Changed += OnSimpleChanged;
+        svc.Growth.Changed += OnSimpleChanged;
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -50,6 +66,7 @@ public partial class DashboardWindow : Window
             svc.Picker.Picked -= OnPicked;
             svc.Rosters.Changed -= OnSimpleChanged;
             svc.Settings.Changed -= OnSimpleChanged;
+            svc.Growth.Changed -= OnSimpleChanged;
         }
         catch (Exception ex)
         {
@@ -78,6 +95,9 @@ public partial class DashboardWindow : Window
         UpdateClock();
         UpdatePickStats();
         UpdateRosterStats();
+        UpdatePointsRanking();
+        UpdateGrowthStats();
+        UpdateCountdownCard();
     }
 
     private void UpdateClock()
@@ -275,6 +295,235 @@ public partial class DashboardWindow : Window
     }
 
     // =========================================================================
+    // 积分排行 / 宠物养成 / 考试 D-Day（第二轮新增）
+    // =========================================================================
+
+    private void UpdatePointsRanking()
+    {
+        if (!AppServices.IsInitialized) return;
+        try
+        {
+            var svc = AppServices.Current;
+            var active = svc.Rosters.Active;
+            var top = active is null ? Array.Empty<StudentPoints>() : svc.Rosters.TopPoints(active.Id, 5).ToArray();
+
+            var signature = $"{active?.Id}|{active?.Name}|" + string.Join(";", top.Select(p => $"{p.StudentKey}:{p.Points}"));
+            if (signature == _pointsSignature) return;
+            _pointsSignature = signature;
+
+            PointsTitleText.Text = active is null ? "" : $"{active.Name} · 前 5";
+            PointsPanel.Children.Clear();
+
+            if (active is null)
+            {
+                PointsEmptyText.Text = svc.Rosters.Rosters.Count == 0
+                    ? "还没有花名册，点“花名册管理”导入或手动录入吧"
+                    : "还没有激活花名册";
+                PointsEmptyText.Visibility = Visibility.Visible;
+                return;
+            }
+            if (top.Length == 0)
+            {
+                PointsEmptyText.Text = "名单里还没有学生";
+                PointsEmptyText.Visibility = Visibility.Visible;
+                return;
+            }
+
+            PointsEmptyText.Visibility = Visibility.Collapsed;
+            for (var i = 0; i < top.Length; i++)
+            {
+                var item = top[i];
+                var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                var rank = new TextBlock
+                {
+                    Text = (i + 1).ToString(),
+                    FontFamily = FontRes(i == 0 ? "Font.Bold" : "Font.Medium", "Segoe UI"),
+                    FontWeight = i == 0 ? FontWeights.Bold : FontWeights.Normal,
+                    FontSize = 13,
+                    Foreground = i == 0 ? BrushRes("Brush.Accent", Colors.Red) : BrushRes("Brush.TextTertiary", Colors.Gray),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(rank, 0);
+                row.Children.Add(rank);
+
+                var name = new TextBlock
+                {
+                    Text = DisplayStudent(item),
+                    FontFamily = FontRes("Font.Medium", "Segoe UI"),
+                    FontSize = 13,
+                    Foreground = BrushRes("Brush.TextPrimary", Colors.Black),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                Grid.SetColumn(name, 1);
+                row.Children.Add(name);
+
+                var points = new TextBlock
+                {
+                    Text = item.Points > 0 ? $"+{item.Points} 分" : $"{item.Points} 分",
+                    FontFamily = FontRes("Font.Bold", "Segoe UI"),
+                    FontWeight = FontWeights.Bold,
+                    FontSize = 13,
+                    Foreground = item.Points > 0 ? BrushRes("Brush.Brand", Colors.RoyalBlue) : BrushRes("Brush.TextTertiary", Colors.Gray),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(10, 0, 0, 0)
+                };
+                Grid.SetColumn(points, 2);
+                row.Children.Add(points);
+
+                PointsPanel.Children.Add(row);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("仪表盘刷新积分排行失败", ex);
+        }
+    }
+
+    private static string DisplayStudent(StudentPoints item)
+    {
+        var name = item.StudentName?.Trim() ?? "";
+        var id = item.StudentId?.Trim() ?? "";
+        if (name.Length > 0 && id.Length > 0) return $"{name}（{id}）";
+        if (name.Length > 0) return name;
+        return id.Length > 0 ? id : item.StudentKey;
+    }
+
+    private void UpdateGrowthStats()
+    {
+        if (!AppServices.IsInitialized) return;
+        try
+        {
+            var growth = AppServices.Current.Growth;
+            var stats = growth.Stats;
+            var achievements = growth.Achievements.Count;
+            var signature = $"{stats.DaysUsed}|{stats.PatCount}|{stats.PickCount}|{stats.GroupCount}|{stats.NoticeCount}|{achievements}";
+            if (signature == _growthSignature) return;
+            _growthSignature = signature;
+
+            GrowthDaysText.Text = stats.DaysUsed.ToString();
+            GrowthPatText.Text = stats.PatCount.ToString();
+            GrowthPickText.Text = stats.PickCount.ToString();
+            GrowthExtraText.Text = $"分组 {stats.GroupCount} 次 · 上下课提示 {stats.NoticeCount} 次" +
+                                   (stats.FirstUseDate != default ? $" · 从 {stats.FirstUseDate:yyyy-MM-dd} 开始陪伴" : "");
+            GrowthAchievementText.Text = achievements > 0
+                ? $"已解锁成就 {achievements} 个：{string.Join("、", growth.Achievements.Take(4).Select(a => a.Title))}" +
+                  (achievements > 4 ? "…" : "")
+                : "还没有解锁成就，多摸摸它试试～";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("仪表盘刷新养成统计失败", ex);
+        }
+    }
+
+    private void UpdateCountdownCard()
+    {
+        if (!AppServices.IsInitialized) return;
+        try
+        {
+            var svc = AppServices.Current;
+            var events = svc.Settings.Current.CountdownEvents;
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            var next = NextCountdownEvent(events, today);
+            var enabled = (events ?? new List<CountdownEventItem>())
+                .Where(e => e is { Enabled: true } && !string.IsNullOrWhiteSpace(e.Name))
+                .OrderBy(e => e.DaysLeft(today) < 0 ? int.MaxValue : e.DaysLeft(today))
+                .ThenByDescending(e => e.DaysLeft(today))
+                .ToList();
+
+            var signature = next is null
+                ? "none"
+                : $"{next.Id}|{next.DaysLeft(today)}|" + string.Join(";", enabled.Select(e => $"{e.Id}:{e.DaysLeft(today)}"));
+            if (signature == _countdownSignature) return;
+            _countdownSignature = signature;
+
+            DdayListPanel.Children.Clear();
+            if (next is null)
+            {
+                DdayNameText.Text = "还没有考试倒计时";
+                DdayNameText.Foreground = BrushRes("Brush.TextTertiary", Colors.Gray);
+                DdayDaysText.Text = "—";
+                DdayDaysText.Foreground = BrushRes("Brush.TextTertiary", Colors.Gray);
+                DdayDateText.Text = "在“设置 → 考试倒计时”里添加考试/重要日期";
+                DdayDot.Background = new SolidColorBrush(Colors.Gray);
+                DdaySpacer.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            var days = next.DaysLeft(today);
+            var color = ToolButtonStyler.ParseColor(next.Color, Colors.OrangeRed);
+            DdayDot.Background = new SolidColorBrush(color);
+            DdayNameText.Text = next.Name;
+            DdayNameText.Foreground = BrushRes("Brush.TextPrimary", Colors.Black);
+            DdayDaysText.Text = days == 0 ? "就是今天！" : days > 0 ? $"还有 {days} 天" : $"已过去 {-days} 天";
+            DdayDaysText.Foreground = new SolidColorBrush(color);
+            DdayDateText.Text = $"{next.Date:yyyy年M月d日} {WeekdayText(next.Date.DayOfWeek)}";
+
+            var others = enabled.Where(e => !ReferenceEquals(e, next) && e.DaysLeft(today) >= 0)
+                .OrderBy(e => e.DaysLeft(today))
+                .Take(3)
+                .ToList();
+            DdaySpacer.Visibility = others.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var item in others)
+            {
+                var itemDays = item.DaysLeft(today);
+                var row = new DockPanel { Margin = new Thickness(0, 2, 0, 2) };
+                var left = new TextBlock
+                {
+                    Text = item.Name,
+                    FontFamily = FontRes("Font.Regular", "Segoe UI"),
+                    FontSize = 12,
+                    Foreground = BrushRes("Brush.TextSecondary", Colors.Gray),
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                var right = new TextBlock
+                {
+                    Text = itemDays == 0 ? "今天" : $"{itemDays} 天",
+                    FontFamily = FontRes("Font.Medium", "Segoe UI"),
+                    FontSize = 12,
+                    Foreground = new SolidColorBrush(ToolButtonStyler.ParseColor(item.Color, color)),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Margin = new Thickness(8, 0, 0, 0)
+                };
+                DockPanel.SetDock(right, Dock.Right);
+                row.Children.Add(right);
+                row.Children.Add(left);
+                DdayListPanel.Children.Add(row);
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("仪表盘刷新考试倒计时失败", ex);
+        }
+    }
+
+    /// <summary>
+    /// 最近的启用倒计时事件：优先取“今天及未来”里天数最小的，若全部已过期则取最近的过去事件；没有启用事件返回 null。
+    /// （纯函数，便于单测。）
+    /// </summary>
+    public static CountdownEventItem? NextCountdownEvent(IEnumerable<CountdownEventItem>? events, DateOnly today)
+    {
+        if (events is null) return null;
+        var enabled = events
+            .Where(e => e is not null && e.Enabled && !string.IsNullOrWhiteSpace(e.Name))
+            .ToList();
+        if (enabled.Count == 0) return null;
+
+        var upcoming = enabled
+            .Where(e => e.DaysLeft(today) >= 0)
+            .OrderBy(e => e.DaysLeft(today))
+            .FirstOrDefault();
+        if (upcoming is not null) return upcoming;
+
+        return enabled.OrderByDescending(e => e.DaysLeft(today)).First();
+    }
+
+    // =========================================================================
     // 快捷操作
     // =========================================================================
 
@@ -302,6 +551,12 @@ public partial class DashboardWindow : Window
 
     private void OnRosterClick(object sender, RoutedEventArgs e) => Guard("打开花名册管理",
         () => AppServices.Current.ShowRosterManager());
+
+    private void OnGroupingClick(object sender, RoutedEventArgs e) => Guard("打开随机分组",
+        () => AppServices.Current.ShowGroupingWindow());
+
+    private void OnCalibrationClick(object sender, RoutedEventArgs e) => Guard("打开铃声校准向导",
+        () => AppServices.Current.ShowRingCalibrationWindow());
 
     private static void Guard(string action, Action body)
     {

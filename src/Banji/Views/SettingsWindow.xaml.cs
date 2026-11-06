@@ -8,6 +8,7 @@ using Banji.Controls.Toolbar;
 using Banji.Core.Abstractions;
 using Banji.Core.Boot;
 using Banji.Core.Infrastructure;
+using Banji.Core.Models;
 using Banji.Core.Settings;
 
 namespace Banji.Views;
@@ -22,8 +23,16 @@ public partial class SettingsWindow : Window
     private string _currentSection = "general";
     private string? _initialSection;
     private ButtonStylePreview? _buttonPreview;
+    private bool _subscribed;
 
-    /// <summary>可选：打开时定位到的分区（general/class/pick/buttons/bubble/pet/timer/preview）。</summary>
+    // 考试倒计时编辑区的草稿（避免直接改 Settings 里的对象）+ 养成统计显示控件
+    private List<CountdownEventItem> _countdownDraft = new();
+    private StackPanel? _countdownListHost;
+    private TextBlock? _growthStatsText;
+    private TextBlock? _growthAchievementText;
+    private TextBlock? _growthExtraText;
+
+    /// <summary>可选：打开时定位到的分区（general/class/pick/buttons/bubble/pet/countdown/timer/preview/backup）。</summary>
     public string? InitialSection
     {
         get => _initialSection;
@@ -59,12 +68,25 @@ public partial class SettingsWindow : Window
             Log.Error("同步开机自启动状态失败", ex);
         }
 
+        if (!_subscribed && AppServices.IsInitialized)
+        {
+            _subscribed = true;
+            try { AppServices.Current.Growth.Changed += OnGrowthChanged; }
+            catch (Exception ex) { Log.Error("设置窗口订阅养成统计失败", ex); }
+        }
+
         _built.Clear();
         SelectSection(_initialSection ?? _currentSection);
     }
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        if (_subscribed)
+        {
+            _subscribed = false;
+            try { AppServices.Current.Growth.Changed -= OnGrowthChanged; }
+            catch { /* 退出过程中可能已不可用 */ }
+        }
         try
         {
             if (AppServices.IsInitialized) AppServices.Current.Settings.Save();
@@ -74,6 +96,18 @@ public partial class SettingsWindow : Window
             Log.Error("设置窗口关闭时保存失败", ex);
         }
     }
+
+    private void OnGrowthChanged(object? sender, EventArgs e) => AppServices.RunOnUi(() =>
+    {
+        try
+        {
+            RefreshGrowthStatsDisplay();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("设置窗口刷新养成统计失败", ex);
+        }
+    });
 
     private void OnNavSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -97,13 +131,15 @@ public partial class SettingsWindow : Window
 
     private static string NormalizeSectionKey(string? key) => (key ?? "").Trim().ToLowerInvariant() switch
     {
-        "class" or "clock" => "class",
+        "class" or "classroom" or "clock" => "class",
         "pick" or "roster" => "pick",
         "buttons" or "button" => "buttons",
-        "bubble" => "bubble",
-        "pet" => "pet",
+        "bubble" or "bubbles" => "bubble",
+        "pet" or "growth" => "pet",
+        "countdown" or "exam" or "dday" or "exam-countdown" => "countdown",
         "timer" or "audio" => "timer",
         "preview" or "notice" => "preview",
+        "backup" or "restore" or "backup-restore" => "backup",
         _ => "general"
     };
 
@@ -126,8 +162,10 @@ public partial class SettingsWindow : Window
         "buttons" => BuildButtonsSection(),
         "bubble" => BuildBubbleSection(),
         "pet" => BuildPetSection(),
+        "countdown" => BuildCountdownSection(),
         "timer" => BuildTimerSection(),
         "preview" => BuildPreviewSection(),
+        "backup" => BuildBackupSection(),
         _ => BuildGeneralSection()
     };
 
@@ -506,14 +544,16 @@ public partial class SettingsWindow : Window
         private readonly string _fallback;
         private readonly Action<string> _onChange;
         private readonly Border _swatch;
-        private readonly TextBox _text;
+        private readonly TextBox? _text;
         private readonly Popup _popup;
+        private string _value;
 
-        public ColorField(SettingsWindow owner, string value, string fallback, Action<string> onChange)
+        public ColorField(SettingsWindow owner, string value, string fallback, Action<string> onChange, bool showTextBox = true)
         {
             _owner = owner;
             _fallback = fallback;
             _onChange = onChange;
+            _value = PetStyleSettings.NormalizeHex(value, fallback);
             Orientation = Orientation.Horizontal;
             VerticalAlignment = VerticalAlignment.Center;
 
@@ -524,26 +564,10 @@ public partial class SettingsWindow : Window
                 CornerRadius = new CornerRadius(7),
                 BorderThickness = new Thickness(1),
                 BorderBrush = owner.DividerBrush,
-                Background = new SolidColorBrush(ToolButtonStyler.ParseColor(value, Colors.Gray)),
+                Background = new SolidColorBrush(ToolButtonStyler.ParseColor(_value, Colors.Gray)),
                 Cursor = Cursors.Hand,
                 Margin = new Thickness(0, 0, 8, 0),
                 ToolTip = "点击选择预设颜色"
-            };
-
-            _text = new TextBox
-            {
-                Text = value,
-                Width = 104,
-                Style = owner.StyleRes("Input.TextBox"),
-                VerticalContentAlignment = VerticalAlignment.Center,
-                ToolTip = "可输入 #RRGGBB 形式的颜色"
-            };
-            _text.LostFocus += (_, _) => Commit();
-            _text.KeyDown += (_, e) =>
-            {
-                if (e.Key != Key.Enter) return;
-                Commit();
-                e.Handled = true;
             };
 
             _popup = new Popup
@@ -556,11 +580,33 @@ public partial class SettingsWindow : Window
                 Child = BuildPalette()
             };
             _swatch.MouseLeftButtonUp += (_, _) => _popup.IsOpen = !_popup.IsOpen;
-
             Children.Add(_swatch);
-            Children.Add(_text);
+
+            if (showTextBox)
+            {
+                _text = new TextBox
+                {
+                    Text = _value,
+                    Width = 104,
+                    Style = owner.StyleRes("Input.TextBox"),
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                    ToolTip = "可输入 #RRGGBB 形式的颜色"
+                };
+                _text.LostFocus += (_, _) => Commit();
+                _text.KeyDown += (_, e) =>
+                {
+                    if (e.Key != Key.Enter) return;
+                    Commit();
+                    e.Handled = true;
+                };
+                Children.Add(_text);
+            }
+
             Children.Add(_popup);
         }
+
+        /// <summary>当前规范化后的颜色值。</summary>
+        public string Value => _value;
 
         private UIElement BuildPalette()
         {
@@ -582,8 +628,15 @@ public partial class SettingsWindow : Window
                 var captured = color;
                 cell.MouseLeftButtonUp += (_, _) =>
                 {
-                    _text.Text = captured;
-                    Commit();
+                    if (_text is not null)
+                    {
+                        _text.Text = captured;
+                        Commit();
+                    }
+                    else
+                    {
+                        ApplyNormalized(PetStyleSettings.NormalizeHex(captured, _fallback));
+                    }
                     _popup.IsOpen = false;
                 };
                 wrap.Children.Add(cell);
@@ -610,8 +663,15 @@ public partial class SettingsWindow : Window
 
         private void Commit()
         {
+            if (_text is null) return;
             var normalized = PetStyleSettings.NormalizeHex(_text.Text, _fallback);
             _text.Text = normalized;
+            ApplyNormalized(normalized);
+        }
+
+        private void ApplyNormalized(string normalized)
+        {
+            _value = normalized;
             _swatch.Background = new SolidColorBrush(ToolButtonStyler.ParseColor(normalized, Colors.Gray));
             _onChange(normalized);
         }

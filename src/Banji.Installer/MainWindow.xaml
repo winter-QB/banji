@@ -52,10 +52,10 @@
                                    FontSize="13.5" HorizontalAlignment="Center" Margin="0,6,0,0" />
                         <Border Margin="0,20,0,0" Background="{StaticResource Brush.BgPale}" CornerRadius="12"
                                 Padding="20,11" HorizontalAlignment="Center">
-                            <TextBlock Text="课程表提醒 · 公平抽签 · 倒计时 / 正计时 · 清醒一下"
+                            <TextBlock Text="课表提醒 · 公平抽签 · 随机分组 · 课堂积分 · 考试倒计时"
                                        FontSize="12.5" Foreground="{StaticResource Brush.BrandOrangeDark}" />
                         </Border>
-                        <TextBlock x:Name="TxtVersion" Text="版本 v1.0.0" Style="{StaticResource Text.Sub}"
+                        <TextBlock x:Name="TxtVersion" Text="版本 v1.1.0" Style="{StaticResource Text.Sub}"
                                    HorizontalAlignment="Center" Margin="0,14,0,0" />
                         <TextBlock Text="安装程序会一并安装 HarmonyOS Sans SC 字体（遵循 HarmonyOS Sans Fonts License Agreement）。"
                                    Style="{StaticResource Text.Sub}" FontSize="11.5" HorizontalAlignment="Center"

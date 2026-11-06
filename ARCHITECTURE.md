@@ -169,3 +169,41 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
    - `--cmd notice start|end|timeout` 预览全屏提示
    - `--cmd settings|dashboard|rosters|timetable|periods` 打开窗口
    - `--cmd expand true|false`、`--cmd scale 1.5`、`--cmd exit`
+
+## 10. 第二轮需求契约（2026-11-06，Lead 已实现共享层）
+
+**用户修改意见**：① 宠物改方形/扁扁/两只方形手+两只方形脚，不要圆形、不要橙色；② 气泡多行文字叠字 bug + 气泡改白底、不要高斯模糊；③ 上课提醒必须能自动关闭；④ 课表/信息框去掉卡片背景，纯文字悬浮桌面、文字周围重高斯模糊压暗背景提高可读性。
+**新增功能**（用户点名）：一键备份/恢复、考试倒计时牌、随机分组、点名积分、铃声校准（“铃声又慢了”智能侦测）、宠物养成、本地离线台词生成器。**不做**：单双周/分层课表、值日/课代表轮值（等用户另行说明）。
+
+### 10.1 新增共享模型（`Core/Models/Extras.cs`，已实现）
+- `CountdownEventItem { Id, Name, Date(DateOnly), Enabled, Color }` + `DaysLeft(today)`
+- `ClassBoundary { Time, Kind(ClassStart/ClassEnd/SchoolEnd), Title, PeriodIndex }`
+- `GroupingOptions { GroupCount, BalanceByScore, Title }`、`GroupingResult { Title, RosterName, TotalStudents, Groups, ToPlainText() }`、`StudentGroup { Index, Name, Students, AverageScore }`
+- `StudentPoints { RosterId, StudentKey, StudentName, StudentId, Points }`
+- `PetGrowthStats { FirstUseDate, LastUseDate, DaysUsed, SessionCount, PatCount, PickCount, GroupCount, NoticeCount, Achievements }`
+- `Achievement { Id, Title, Description, UnlockedAt }`、`BackupInfo { CreatedAt, AppVersion, RosterCount, StudentCount, HasTimetable, HasSettings, Files }`
+
+### 10.2 新增/变更服务契约
+- `IRosterService` 新增：`AddPoints(rosterId, studentKey, delta)`、`ResetPoints(rosterId)`、`TopPoints(rosterId, count)`；`Student` 新增 `Points`。
+- `IScheduleService` 新增：`UpcomingBoundaries(now, count)`（返回未来上课/下课/放学边界，已应用铃声误差）。
+- 新服务（`AppServices.Current` 暴露）：`IGroupingService Grouping`、`IPetGrowthService Growth`、`IBackupService Backup`。
+- `AppServices` 新增方法：`ShowGroupingWindow()`、`ShowRingCalibrationWindow()`、`RestartApplication()`；启动时 `Growth.RecordSessionStart()`；`Picker.Picked` 已自动 `Growth.RecordPick()`；上下课提示已自动 `Growth.RecordNotice()`。**不要重复接线**。
+- 宠物摸头请调用 `AppServices.Current.Growth.RecordPat()`（受 `Settings.EnableGrowth` 控制）。
+- 新增 QA 命令：`--cmd grouping|ring-calibration|backup-export <path>|backup-inspect <path>|backup-import <path>|restart|set-notice-duration <s>`。
+
+### 10.3 默认值变化（Lead 已改）
+- `Bubble.UseBlur=false`、`Bubble.OpacityPercent=0`（完全不透明白底）；气泡多行叠字根因：`BubbleWindow.xaml` 的 `LineHeight="1.45"` 是**绝对像素**（1.45px 行高），必须改为字号倍数换算（约 20px）或删除。
+- `PetStyleSettings` 默认雾蓝色方形配色：BodyColor `#8FB6F2`、BodyShadeColor `#6E96DA`、BellyColor `#B7CFF7`；仍保留两个纯黑圆点眼睛、无腮红/鼻子/嘴巴/高光。
+- 新增 `AppSettings` 字段：`ShowCountdownOnPet=true`、`CountdownEvents`、`UseLocalQuipGenerator=true`、`EnableGrowth=true`。
+
+### 10.4 第二轮文件作用域
+| 负责人 | 新增/变更 |
+|---|---|
+| `pet-ui` | `Views/PetWindow.*`、`BubbleWindow.*`、`MenuFlyout.*`、`Controls/Pet/**`、`Core/Quips/**`、`Core/Growth/*`（完善） |
+| `features-ui` | `Views/SettingsWindow.*`、`DashboardWindow.*`、`Controls/Toolbar/**`、`Core/Backup/**`（完善）、新增 `Views/BackupWindow.*`（如需要） |
+| `core-roster` | `Core/Roster/**`、`Core/Grouping/**`、`Views/RosterWindow.*`、`Views/GroupingWindow.*` |
+| `core-schedule` | `Core/Schedule/**`、`Core/Notices/**`、`Views/FullscreenNoticeWindow.*`、`Views/RingCalibrationWindow.*` |
+| `packaging` | 图标、README、版本 1.1.0、重新打包 dist、安装器自测 |
+
+窗口统一保留无参构造；`SettingsWindow` 继续保留 `InitialSection`；所有新增窗口由 `AppServices` 统一创建。
+**禁止**：修改 `Core/Models/**`、`Core/Settings/**`、`Core/Abstractions/**`、`Core/Boot/AppServices.cs`、`App.xaml*`、`Resources/**`、`Banji.csproj`、`Banji.sln`（需要改先找 Lead）。单双周/值日**不要实现**。

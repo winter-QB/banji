@@ -1,7 +1,11 @@
-﻿using System.Windows;
+﻿using System.Diagnostics;
+using System.Windows;
 using System.Windows.Threading;
 using Banji.Core.Abstractions;
 using Banji.Core.Audio;
+using Banji.Core.Backup;
+using Banji.Core.Grouping;
+using Banji.Core.Growth;
 using Banji.Core.Infrastructure;
 using Banji.Core.Models;
 using Banji.Core.Notices;
@@ -34,6 +38,10 @@ public sealed class AppServices
     public ITimerService Timers { get; }
     public IAudioService Audio { get; }
     public INotificationService Notices { get; }
+    // 第二轮新增
+    public IGroupingService Grouping { get; }
+    public IPetGrowthService Growth { get; }
+    public IBackupService Backup { get; }
 
     public PetWindow? PetWindow { get; private set; }
 
@@ -49,7 +57,10 @@ public sealed class AppServices
         IClassClock clock,
         ITimerService timers,
         IAudioService audio,
-        INotificationService notices)
+        INotificationService notices,
+        IGroupingService grouping,
+        IPetGrowthService growth,
+        IBackupService backup)
     {
         Settings = settings;
         Rosters = rosters;
@@ -60,6 +71,9 @@ public sealed class AppServices
         Timers = timers;
         Audio = audio;
         Notices = notices;
+        Grouping = grouping;
+        Growth = growth;
+        Backup = backup;
         Wire();
     }
 
@@ -75,7 +89,10 @@ public sealed class AppServices
         var timers = new TimerService();
         var audio = new AudioService();
         var notices = new NotificationService();
-        _current = new AppServices(settings, rosters, picker, timetable, schedule, clock, timers, audio, notices);
+        var grouping = new GroupingService(rosters);
+        var growth = new PetGrowthService();
+        var backup = new BackupService();
+        _current = new AppServices(settings, rosters, picker, timetable, schedule, clock, timers, audio, notices, grouping, growth, backup);
         return _current;
     }
 
@@ -105,6 +122,13 @@ public sealed class AppServices
             }
             catch (Exception ex) { Log.Error("花名册回退失败", ex); }
         };
+
+        // 养成统计：抽签计数
+        Picker.Picked += (_, _) =>
+        {
+            try { if (Settings.Current.EnableGrowth) Growth.RecordPick(); }
+            catch (Exception ex) { Log.Error("养成统计记录抽签失败", ex); }
+        };
     }
 
     private void OnClassTransition(object? sender, ClassTransitionEventArgs e)
@@ -117,11 +141,17 @@ public sealed class AppServices
                     if (Settings.Current.ResetPickSessionOnClassStart)
                         Picker.ResetSession();
                     if (Settings.Current.ShowClassStartNotice)
+                    {
                         Notices.ShowClassStart(e);
+                        if (Settings.Current.EnableGrowth) Growth.RecordNotice();
+                    }
                     break;
                 case ClassTransitionKind.ClassEnded:
                     if (Settings.Current.ShowClassEndNotice)
+                    {
                         Notices.ShowClassEnd(e);
+                        if (Settings.Current.EnableGrowth) Growth.RecordNotice();
+                    }
                     break;
                 case ClassTransitionKind.SchoolEnded:
                     // 放学暂不弹全屏提示（文档只要求课堂上下课提示）
@@ -140,6 +170,12 @@ public sealed class AppServices
 
     public void Start()
     {
+        try
+        {
+            if (Settings.Current.EnableGrowth) Growth.RecordSessionStart();
+        }
+        catch (Exception ex) { Log.Error("养成统计记录启动失败", ex); }
+
         PetWindow = new PetWindow();
         Register(PetWindow);
         PetWindow.Show();
@@ -147,7 +183,8 @@ public sealed class AppServices
         Log.Info("班机已启动");
     }
 
-    public void Shutdown()
+    /// <summary>重启应用（恢复备份 / 应用需要重启的设置后使用）。</summary>
+    public void RestartApplication()
     {
         try
         {
@@ -155,6 +192,54 @@ public sealed class AppServices
             Settings.Save();
             Rosters.Save();
             Timetable.Save();
+            var exe = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(exe))
+                Process.Start(new ProcessStartInfo { FileName = exe, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("重启应用失败", ex);
+        }
+        Shutdown();
+    }
+
+    /// <summary>
+    /// 重启应用。恢复备份后请用 <c>RestartApplication(saveBeforeRestart: false)</c>，
+    /// 否则内存里的旧数据会在退出时覆盖刚恢复的备份文件。
+    /// </summary>
+    public void RestartApplication(bool saveBeforeRestart = true)
+    {
+        try
+        {
+            Clock.Stop();
+            if (saveBeforeRestart)
+            {
+                Settings.Save();
+                Rosters.Save();
+                Timetable.Save();
+            }
+            var exe = Environment.ProcessPath;
+            if (!string.IsNullOrWhiteSpace(exe))
+                Process.Start(new ProcessStartInfo { FileName = exe, UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            Log.Error("重启应用失败", ex);
+        }
+        Shutdown(saveBeforeRestart);
+    }
+
+    public void Shutdown(bool saveData = true)
+    {
+        try
+        {
+            Clock.Stop();
+            if (saveData)
+            {
+                Settings.Save();
+                Rosters.Save();
+                Timetable.Save();
+            }
         }
         catch (Exception ex)
         {
@@ -232,6 +317,21 @@ public sealed class AppServices
     public RosterPickerFlyout ShowRosterPicker() => ShowWindow(() => new RosterPickerFlyout());
 
     public MenuFlyout ShowMenuFlyout() => ShowWindow(() => new MenuFlyout());
+
+    // ---- 第二轮新增窗口 ----
+    public GroupingWindow ShowGroupingWindow()
+    {
+        var w = ShowWindow(() => new GroupingWindow());
+        w.ShowInTaskbar = true;
+        return w;
+    }
+
+    public RingCalibrationWindow ShowRingCalibrationWindow()
+    {
+        var w = ShowWindow(() => new RingCalibrationWindow());
+        w.ShowInTaskbar = true;
+        return w;
+    }
 
     public TimerDialog ShowTimerDialog(TimerKind kind)
     {

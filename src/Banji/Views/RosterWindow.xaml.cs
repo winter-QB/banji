@@ -19,6 +19,7 @@ public partial class RosterWindow : Window
     private bool _initialized;
     private bool _subscribed;
     private string? _selectedRosterId;
+    private string? _selectedStudentKey;
 
     public RosterWindow()
     {
@@ -116,6 +117,12 @@ public partial class RosterWindow : Window
         DetailArea.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
         DeleteRosterButton.IsEnabled = !empty;
         SetActiveButton.IsEnabled = !empty;
+        ResetPointsButton.IsEnabled = !empty;
+        if (empty)
+        {
+            AddPointButton.IsEnabled = false;
+            SubtractPointButton.IsEnabled = false;
+        }
     }
 
     private void LoadDetail(string rosterId)
@@ -127,6 +134,8 @@ public partial class RosterWindow : Window
             return;
         }
 
+        if (!string.Equals(_selectedRosterId, roster.Id, StringComparison.Ordinal))
+            _selectedStudentKey = null; // 切换花名册时清空学生选中
         _selectedRosterId = roster.Id;
         var activeId = Rosters.Active?.Id;
         var isActive = string.Equals(roster.Id, activeId, StringComparison.Ordinal);
@@ -153,7 +162,17 @@ public partial class RosterWindow : Window
             _students.Clear();
             var sorted = roster.SortedStudents();
             foreach (var student in sorted) _students.Add(student);
-            StudentCountText.Text = $"共 {sorted.Count} 人";
+
+            // 刷新后恢复之前选中的学生（加减积分会触发 Changed → 刷新，选中不能丢）
+            Student? restore = null;
+            if (_selectedStudentKey is not null)
+            {
+                restore = _students.FirstOrDefault(s =>
+                    string.Equals(s.Key, _selectedStudentKey, StringComparison.Ordinal));
+            }
+            if (restore is null && _students.Count > 0) restore = _students[0];
+            StudentGrid.SelectedItem = restore;
+            _selectedStudentKey = restore?.Key;
         }
         finally
         {
@@ -161,6 +180,7 @@ public partial class RosterWindow : Window
         }
 
         UpdateScoreColumnVisibility();
+        UpdatePointsButtons();
     }
 
     private static string BuildMeta(Roster roster)
@@ -260,6 +280,87 @@ public partial class RosterWindow : Window
     {
         if (!_initialized) return;
         UpdateScoreColumnVisibility();
+    }
+
+    // =========================================================================
+    // 课堂积分
+    // =========================================================================
+
+    private void OnStudentSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        _selectedStudentKey = (StudentGrid.SelectedItem as Student)?.Key;
+        UpdatePointsButtons();
+    }
+
+    private void UpdatePointsButtons()
+    {
+        var hasSelection = StudentGrid.SelectedItem is Student { IsValid: true };
+        AddPointButton.IsEnabled = hasSelection;
+        SubtractPointButton.IsEnabled = hasSelection;
+        ResetPointsButton.IsEnabled = _selectedRosterId is not null;
+    }
+
+    private void OnAddPointClick(object sender, RoutedEventArgs e) => ChangeSelectedStudentPoints(1);
+
+    private void OnSubtractPointClick(object sender, RoutedEventArgs e) => ChangeSelectedStudentPoints(-1);
+
+    private void ChangeSelectedStudentPoints(int delta)
+    {
+        if (_selectedRosterId is null) return;
+        StudentGrid.CommitEdit(DataGridEditingUnit.Row, exitEditingMode: true);
+
+        if (StudentGrid.SelectedItem is not Student student || !student.IsValid)
+        {
+            StatusText.Text = "请先在表格里选中一名学生，再点加分 / 减分。";
+            return;
+        }
+
+        var rosterId = _selectedRosterId;
+        var key = student.Key;
+        try
+        {
+            Rosters.AddPoints(rosterId, key, delta); // 内部立即 Save + Changed，界面由 Changed 刷新
+            var updated = Rosters.Get(rosterId)?.Students
+                .FirstOrDefault(s => string.Equals(s.Key, key, StringComparison.Ordinal));
+            _selectedStudentKey = key;
+            StatusText.Text = updated is null
+                ? $"已{(delta > 0 ? "加" : "减")} 1 分"
+                : $"“{updated.DisplayName}” {delta:+#;-#;0} 分，当前 {updated.Points} 分";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("加减积分失败", ex);
+            StatusText.Text = ex.Message;
+        }
+    }
+
+    private void OnResetPointsClick(object sender, RoutedEventArgs e)
+    {
+        if (_selectedRosterId is null) return;
+        var roster = Rosters.Get(_selectedRosterId);
+        if (roster is null) return;
+
+        if (!roster.Students.Any(s => s.Points != 0))
+        {
+            StatusText.Text = "本花名册的积分已经都是 0 分了。";
+            return;
+        }
+
+        var confirm = MessageBox.Show(this,
+            $"确定要把“{roster.Name}”全部 {roster.Students.Count(s => s.IsValid)} 名学生的积分清零吗？\n清零后无法恢复。",
+            "清零积分", MessageBoxButton.OKCancel, MessageBoxImage.Warning);
+        if (confirm != MessageBoxResult.OK) return;
+
+        try
+        {
+            Rosters.ResetPoints(_selectedRosterId);
+            StatusText.Text = "本花名册积分已全部清零";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("清零积分失败", ex);
+            StatusText.Text = ex.Message;
+        }
     }
 
     private void OnSetActiveClick(object sender, RoutedEventArgs e)

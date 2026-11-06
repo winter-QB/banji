@@ -6,7 +6,7 @@
         Title="班机"
         WindowStyle="None"
         AllowsTransparency="True"
-        Background="Transparent"
+        Background="{x:Null}"
         Topmost="True"
         ShowInTaskbar="False"
         ShowActivated="False"
@@ -19,20 +19,6 @@
         TextOptions.TextFormattingMode="Ideal">
 
     <Window.Resources>
-        <!-- 半透明圆角卡片（课表 / 常驻信息框） -->
-        <Style x:Key="Pet.Card" TargetType="Border">
-            <Setter Property="Background" Value="#F0F7FAFF" />
-            <Setter Property="BorderBrush" Value="#B8FFFFFF" />
-            <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="14" />
-            <Setter Property="Padding" Value="10,8" />
-            <Setter Property="Effect">
-                <Setter.Value>
-                    <DropShadowEffect Color="#16305C" BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.22" />
-                </Setter.Value>
-            </Setter>
-        </Style>
-
         <!-- 头顶 / 左下角的小三角按钮 -->
         <Style x:Key="Pet.Triangle" TargetType="Button">
             <Setter Property="Width" Value="26" />
@@ -68,36 +54,20 @@
             <ScaleTransform x:Name="UiScaleTransform" ScaleX="1" ScaleY="1" />
         </Grid.LayoutTransform>
 
-        <Grid x:Name="LayoutRoot" Margin="14,10,14,14">
+        <Grid x:Name="LayoutRoot" Margin="20,16,20,18">
             <StackPanel x:Name="PetStack" VerticalAlignment="Bottom" HorizontalAlignment="Right">
 
-                <!-- 当天课表面板 -->
-                <Border x:Name="TimetableCard" Style="{StaticResource Pet.Card}" Width="186"
-                        Margin="0,0,0,8" HorizontalAlignment="Right">
-                    <StackPanel>
-                        <Grid Margin="2,0,2,5">
-                            <TextBlock x:Name="TimetableTitle" Text="今天"
-                                       FontFamily="{StaticResource Font.Light}" FontSize="10.5"
-                                       Foreground="#8A94A6" VerticalAlignment="Center" />
-                            <TextBlock x:Name="TimetableMeta" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                       FontFamily="{StaticResource Font.Light}" FontSize="9" Foreground="#A2ABBB" />
-                        </Grid>
-                        <StackPanel x:Name="TimetableRows" />
-                        <TextBlock x:Name="TimetableEmpty" Text="暂无课表" Visibility="Collapsed"
-                                   FontFamily="{StaticResource Font.Light}" FontSize="10.5"
-                                   Foreground="#A2ABBB" Margin="2,1,2,2" />
-                    </StackPanel>
-                </Border>
+                <!-- 当天课表：纯文字悬浮桌面（无卡片背景），文字周围有重高斯模糊黑晕压暗背景 -->
+                <StackPanel x:Name="TimetablePanel" Width="196" HorizontalAlignment="Right" Margin="0,0,0,9">
+                    <pet:HaloTextLine x:Name="TimetableTitle" Height="16" Margin="0,0,0,5" />
+                    <pet:HaloTextStack x:Name="TimetableBody" RowHeight="21" LineSpacing="1" />
+                    <pet:HaloTextLine x:Name="TimetableEmpty" Height="18" Visibility="Collapsed" />
+                </StackPanel>
 
-                <!-- 常驻信息框：每项一行 -->
-                <Border x:Name="InfoCard" Style="{StaticResource Pet.Card}" Width="186"
-                        Margin="0,0,0,4" HorizontalAlignment="Right">
-                    <StackPanel>
-                        <TextBlock x:Name="InfoRow1" Margin="1,0,1,2" />
-                        <TextBlock x:Name="InfoRow2" Margin="1,0,1,1" />
-                        <TextBlock x:Name="InfoRow3" Margin="1,0,1,0" />
-                    </StackPanel>
-                </Border>
+                <!-- 常驻信息：每项一行，纯文字悬浮，无卡片 -->
+                <StackPanel x:Name="InfoPanel" Width="196" HorizontalAlignment="Right" Margin="0,0,0,4">
+                    <pet:HaloTextStack x:Name="InfoBody" LineSpacing="2" />
+                </StackPanel>
 
                 <!-- 宠物头顶的两个小三角：折叠/展开课表、菜单（半透明胶囊底，保证在任意桌面上可读） -->
                 <Border x:Name="TrianglePill" HorizontalAlignment="Right" Margin="0,0,26,2"
@@ -177,4 +147,5 @@
         </Grid>
     </Grid>
 </Window>
+
 

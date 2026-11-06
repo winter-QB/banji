@@ -173,6 +173,102 @@ public sealed class RosterService : IRosterService
     }
 
     // =========================================================================
+    // 积分（第二轮新增）
+    // =========================================================================
+
+    /// <summary>单次加减分的合理范围（防止误操作导致积分爆炸 / int 溢出）。</summary>
+    private const int MaxPointsDelta = 1000;
+
+    /// <summary>单名学生积分绝对值上限。</summary>
+    private const int MaxPointsTotal = 1_000_000;
+
+    public void AddPoints(string rosterId, string studentKey, int delta)
+    {
+        if (string.IsNullOrWhiteSpace(rosterId))
+            throw new InvalidOperationException("请先选择一份花名册，再给学生加减积分。");
+        if (string.IsNullOrWhiteSpace(studentKey))
+            throw new InvalidOperationException("请先选择一名学生，再加分或减分。");
+        if (delta == 0) return;
+
+        // 防止异常大的 delta；正常 UI 只传 ±1
+        delta = Math.Clamp(delta, -MaxPointsDelta, MaxPointsDelta);
+        var key = studentKey.Trim();
+        var name = "";
+        var points = 0;
+
+        lock (_gate)
+        {
+            var roster = _rosters.FirstOrDefault(r => string.Equals(r.Id, rosterId, StringComparison.Ordinal))
+                         ?? throw new InvalidOperationException("找不到要加减积分的学生所在花名册，可能已被删除。");
+            var student = roster.Students.FirstOrDefault(s => string.Equals(s.Key, key, StringComparison.Ordinal))
+                          ?? throw new InvalidOperationException("找不到该学生，可能花名册刚被修改，请刷新后重试。");
+
+            var next = (long)student.Points + delta;
+            student.Points = (int)Math.Clamp(next, -MaxPointsTotal, MaxPointsTotal);
+            roster.UpdatedAt = _now();
+            points = student.Points;
+            name = student.DisplayName;
+            SaveCore();
+        }
+
+        Log.Info($"积分变更：{name} {delta:+#;-#;0} → {points}");
+        RaiseChanged();
+    }
+
+    public void ResetPoints(string rosterId)
+    {
+        if (string.IsNullOrWhiteSpace(rosterId)) return;
+        var changed = false;
+        var count = 0;
+
+        lock (_gate)
+        {
+            var roster = _rosters.FirstOrDefault(r => string.Equals(r.Id, rosterId, StringComparison.Ordinal));
+            if (roster is null) return;
+            foreach (var student in roster.Students)
+            {
+                if (student.Points == 0) continue;
+                student.Points = 0;
+                changed = true;
+                count++;
+            }
+            if (!changed) return;
+            roster.UpdatedAt = _now();
+            SaveCore();
+        }
+
+        Log.Info($"花名册积分清零：{rosterId}，{count} 名学生");
+        RaiseChanged();
+    }
+
+    public IReadOnlyList<StudentPoints> TopPoints(string rosterId, int count = 10)
+    {
+        if (string.IsNullOrWhiteSpace(rosterId) || count <= 0) return Array.Empty<StudentPoints>();
+
+        lock (_gate)
+        {
+            var roster = _rosters.FirstOrDefault(r => string.Equals(r.Id, rosterId, StringComparison.Ordinal));
+            if (roster is null) return Array.Empty<StudentPoints>();
+
+            var zh = StringComparer.Create(CultureInfo.GetCultureInfo("zh-CN"), ignoreCase: true);
+            return roster.Students
+                .Where(s => s.IsValid)
+                .OrderByDescending(s => s.Points)
+                .ThenBy(s => s.HasName ? s.Name.Trim() : s.Id.Trim(), zh)
+                .Take(Math.Min(count, 500))
+                .Select(s => new StudentPoints
+                {
+                    RosterId = roster.Id,
+                    StudentKey = s.Key,
+                    StudentName = s.DisplayName,
+                    StudentId = s.DisplayId,
+                    Points = s.Points
+                })
+                .ToList();
+        }
+    }
+
+    // =========================================================================
     // 导入
     // =========================================================================
 

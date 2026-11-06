@@ -1,4 +1,4 @@
-using Banji.Core.Models;
+﻿using Banji.Core.Models;
 
 namespace Banji.Core.Settings;
 
@@ -43,7 +43,15 @@ public sealed class AppSettings
     public double PetBottomMargin { get; set; } = 0;
     public bool TimetableExpanded { get; set; } = true;
     public bool ShowTimetablePanel { get; set; } = true;
+    /// <summary>宠物常驻信息里显示考试/重要日期倒计时（D-Day）。</summary>
+    public bool ShowCountdownOnPet { get; set; } = true;
+    /// <summary>考试/重要日期倒计时事件列表。</summary>
+    public List<CountdownEventItem> CountdownEvents { get; set; } = new();
     public bool EnableQuips { get; set; } = true;
+    /// <summary>使用本地台词生成器（模板+语料组合，零联网），比固定台词库更不容易重复。</summary>
+    public bool UseLocalQuipGenerator { get; set; } = true;
+    /// <summary>宠物陪伴养成统计（使用天数/摸头/抽签/成就）。</summary>
+    public bool EnableGrowth { get; set; } = true;
     public bool PetBlinkEnabled { get; set; } = true;
     public bool PetBobEnabled { get; set; } = true;
     /// <summary>“清醒一下”播放的音量（0~1），默认 1 = 应用内最大音量。</summary>
@@ -61,6 +69,12 @@ public sealed class AppSettings
         Buttons ??= new ButtonStyleSettings();
         Bubble ??= new BubbleStyleSettings();
         Notice ??= new NoticeStyleSettings();
+        CountdownEvents ??= new List<CountdownEventItem>();
+        CountdownEvents.RemoveAll(c => c is null || string.IsNullOrWhiteSpace(c.Name));
+        foreach (var ev in CountdownEvents)
+        {
+            if (!ev.Color.StartsWith('#')) ev.Color = "#" + ev.Color;
+        }
 
         if (UiScale <= 0) UiScale = 1.0;
         UiScale = Math.Clamp(UiScale, 0.05, 20.0);
@@ -85,20 +99,22 @@ public sealed class AppSettings
         copy.Buttons = Buttons.Clone();
         copy.Bubble = Bubble.Clone();
         copy.Notice = Notice.Clone();
+        copy.CountdownEvents = CountdownEvents.Select(c => c.Clone()).ToList();
         return copy;
     }
 }
 
 /// <summary>
-/// 宠物外观：默认参考 Claude 橙色小生物，但按用户要求保持极简——
-/// 简单几何身体 + <b>两个纯黑小圆点眼睛</b>，无腮红、无鼻子、无嘴巴、无高光。
+/// 宠物外观（第二轮用户要求）：<b>方形、扁扁的</b>小方块生物，两只小方形手 + 两只小方形脚，
+/// 两只纯黑实心小圆点眼睛；无腮红/鼻子/嘴巴/高光；颜色不用橙色，默认雾蓝色。
 /// </summary>
 public sealed class PetStyleSettings
 {
-    public string BodyColor { get; set; } = "#D97757";
-    /// <summary>身体底部轻微暗色（扁平化时可与 BodyColor 相同）。</summary>
-    public string BodyShadeColor { get; set; } = "#D97757";
-    public string BellyColor { get; set; } = "#E58A6D";
+    public string BodyColor { get; set; } = "#8FB6F2";
+    /// <summary>身体底边/手臂的略深色。</summary>
+    public string BodyShadeColor { get; set; } = "#6E96DA";
+    /// <summary>身体正面下半部分的浅色（可选细节，默认同色系）。</summary>
+    public string BellyColor { get; set; } = "#B7CFF7";
     public string EyeColor { get; set; } = "#231F20";
     public string CheekColor { get; set; } = "#FFB4A2";
     /// <summary>默认关闭（用户明确要求不要腮红）。</summary>
@@ -106,9 +122,9 @@ public sealed class PetStyleSettings
 
     public void Normalize()
     {
-        BodyColor = NormalizeHex(BodyColor, "#D97757");
-        BodyShadeColor = NormalizeHex(BodyShadeColor, "#C05F42");
-        BellyColor = NormalizeHex(BellyColor, "#F2C6B4");
+        BodyColor = NormalizeHex(BodyColor, "#8FB6F2");
+        BodyShadeColor = NormalizeHex(BodyShadeColor, "#6E96DA");
+        BellyColor = NormalizeHex(BellyColor, "#B7CFF7");
         EyeColor = NormalizeHex(EyeColor, "#231F20");
         CheekColor = NormalizeHex(CheekColor, "#FFB4A2");
     }
@@ -173,11 +189,13 @@ public sealed class ButtonStyleSettings
     public ButtonStyleSettings Clone() => (ButtonStyleSettings)MemberwiseClone();
 }
 
-/// <summary>对话气泡外观。</summary>
+/// <summary>对话气泡外观（第二轮用户要求：白底、不使用高斯模糊底）。</summary>
 public sealed class BubbleStyleSettings
 {
-    public int OpacityPercent { get; set; } = 50;
-    public bool UseBlur { get; set; } = true;
+    /// <summary>“透明度”语义：0 = 完全不透明的白底（默认），50 = 半透明。</summary>
+    public int OpacityPercent { get; set; } = 0;
+    /// <summary>是否使用截屏高斯模糊作为气泡底（默认关闭；白底更清楚）。</summary>
+    public bool UseBlur { get; set; } = false;
     public double BlurRadius { get; set; } = 14;
     public string BackgroundColor { get; set; } = "#FFFFFF";
     public string BorderColor { get; set; } = "#3E6BFF";

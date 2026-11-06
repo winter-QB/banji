@@ -23,7 +23,7 @@
 
         <!-- ===================== 上课提示 ===================== -->
         <Grid x:Name="ClassStartPanel" Visibility="Collapsed">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40,40,40,110">
                 <TextBlock x:Name="StartTitle"
                            Text="上课"
                            FontFamily="{StaticResource Font.Black}"
@@ -58,11 +58,11 @@
                            TextAlignment="Center" />
 
                 <TextBlock x:Name="StartHint"
-                           Text="点击任意位置关闭"
+                           Text="点击任意位置关闭（或按 ESC）"
                            FontFamily="{StaticResource Font.Light}"
                            FontSize="18"
                            Foreground="#B3FFFFFF"
-                           Margin="0,56,0,0"
+                           Margin="0,48,0,0"
                            HorizontalAlignment="Center"
                            TextAlignment="Center" />
             </StackPanel>
@@ -70,7 +70,7 @@
 
         <!-- ===================== 下课提示（纯文字，不遮挡点击） ===================== -->
         <Grid x:Name="ClassEndPanel" Visibility="Collapsed">
-            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40,40,40,110">
                 <TextBlock x:Name="EndTitle"
                            Text="下课"
                            FontFamily="{StaticResource Font.Black}"
@@ -93,6 +93,33 @@
                            HorizontalAlignment="Center"
                            TextAlignment="Center" />
             </StackPanel>
+        </Grid>
+
+        <!-- ========== 底部共用：自动关闭进度条 + “N 秒后自动关闭”小字 ========== -->
+        <Grid x:Name="AutoCloseArea" VerticalAlignment="Bottom" IsHitTestVisible="False">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="2" />
+            </Grid.RowDefinitions>
+
+            <TextBlock x:Name="AutoCloseText"
+                       Grid.Row="0"
+                       Text="4 秒后自动关闭（点击或按 ESC 立即关闭）"
+                       FontFamily="{StaticResource Font.Light}"
+                       FontSize="17"
+                       Foreground="#D9FFFFFF"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       Margin="0,0,0,20">
+                <TextBlock.Effect>
+                    <DropShadowEffect Direction="270" ShadowDepth="2" BlurRadius="12" Opacity="0.55" Color="#000000" />
+                </TextBlock.Effect>
+            </TextBlock>
+
+            <!-- 细进度条（约 1~2px，随停留时间收缩到 0） -->
+            <Grid Grid.Row="1" x:Name="ProgressTrack" Background="#33FFFFFF">
+                <Border x:Name="ProgressFill" HorizontalAlignment="Left" Background="#E6FFFFFF" />
+            </Grid>
         </Grid>
     </Grid>
 </Window>

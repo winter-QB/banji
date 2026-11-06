@@ -1,0 +1,170 @@
+<Window x:Class="Banji.Views.RingCalibrationWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="铃声校准 — 班机"
+        Width="800" Height="740"
+        MinWidth="700" MinHeight="600"
+        WindowStartupLocation="CenterScreen"
+        Background="#F5F7FB"
+        FontFamily="{StaticResource Font.Regular}"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Ideal">
+
+    <Window.Resources>
+        <!-- 大字“我听到铃声了”按钮 -->
+        <Style x:Key="BellButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="#317FFF" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FontFamily" Value="{StaticResource Font.Bold}" />
+            <Setter Property="FontWeight" Value="Bold" />
+            <Setter Property="FontSize" Value="24" />
+            <Setter Property="Padding" Value="52,16" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="16"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#5998FF" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="#0051D6" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22,18,22,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 标题 -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="铃声校准" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                       FontSize="24" Foreground="#1F2329" />
+            <TextBlock FontSize="13" Foreground="#6B7280" TextWrapping="Wrap" Margin="0,6,0,0"
+                       Text="学校的铃声时间可能和标准时间差几秒。下次铃声响起的瞬间点一下下面的按钮，班机会自动算出建议的“铃声误差”，让上下课提示与真实铃声对齐（不用重启程序）。" />
+        </StackPanel>
+
+        <!-- 当前误差 -->
+        <Border Grid.Row="1" Background="White" CornerRadius="12" BorderBrush="#E5E9F2"
+                BorderThickness="1" Padding="16,12" Margin="0,14,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                    <TextBlock Text="当前铃声误差" FontSize="12" Foreground="#6B7280" />
+                    <TextBlock x:Name="CurrentOffsetText" Text="0 秒"
+                               FontFamily="{StaticResource Font.Bold}" FontWeight="Bold" FontSize="30"
+                               Foreground="#317FFF" Margin="0,2,0,0" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Margin="24,0,16,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="CurrentOffsetDesc" Text="与课表时间一致（默认）"
+                               FontSize="13" Foreground="#1F2329" TextWrapping="Wrap" />
+                    <TextBlock Text="含义：程序显示时间 = 课表时间 + 误差；正数 = 比课表晚，负数 = 比课表早，范围 ±60 秒。"
+                               FontSize="12" Foreground="#9AA3AF" TextWrapping="Wrap" Margin="0,4,0,0" />
+                </StackPanel>
+
+                <Button Grid.Column="2" Content="重置为 0" Style="{StaticResource Button.FormGhost}"
+                        Padding="16,8" VerticalAlignment="Center" Click="OnResetClick" />
+            </Grid>
+        </Border>
+
+        <!-- 最近的时间边界 -->
+        <Border Grid.Row="2" Background="White" CornerRadius="12" BorderBrush="#E5E9F2"
+                BorderThickness="1" Padding="16,12" Margin="0,14,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                    <TextBlock Text="最近的时间边界" FontFamily="{StaticResource Font.Medium}"
+                               FontSize="15" Foreground="#1F2329" VerticalAlignment="Center" />
+                    <TextBlock Text="已应用当前误差 · 实时倒计时" DockPanel.Dock="Right"
+                               HorizontalAlignment="Right" FontSize="12" Foreground="#9AA3AF"
+                               VerticalAlignment="Center" />
+                </DockPanel>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="BoundaryList" />
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- 大按钮：我听到铃声了 -->
+        <StackPanel Grid.Row="3" HorizontalAlignment="Center" Margin="0,16,0,0">
+            <Button x:Name="BellButton" Style="{StaticResource BellButtonStyle}"
+                    Content="🔔 我听到铃声了" Click="OnBellClick"
+                    ToolTip="在铃声响起的那一刻点击（前后 2 分钟内的边界都能识别）" />
+            <TextBlock Text="铃声响起时点一下，越接近铃声越准" FontSize="12" Foreground="#9AA3AF"
+                       HorizontalAlignment="Center" Margin="0,8,0,0" />
+        </StackPanel>
+
+        <!-- 建议 + 状态 -->
+        <StackPanel Grid.Row="4" Margin="0,12,0,0">
+            <Border x:Name="SuggestionPanel" Visibility="Collapsed" Background="#EAF2FF"
+                    CornerRadius="12" BorderBrush="#B9D3FF" BorderThickness="1" Padding="16,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0">
+                        <TextBlock x:Name="SuggestionTitle" FontFamily="{StaticResource Font.Bold}"
+                                   FontWeight="Bold" FontSize="16" Foreground="#1F2329" TextWrapping="Wrap" />
+                        <TextBlock x:Name="SuggestionDetail" FontSize="12" Foreground="#4B5563"
+                                   TextWrapping="Wrap" Margin="0,6,12,0" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <Button x:Name="ApplySuggestionButton" Content="应用建议" Style="{StaticResource Button.Form}"
+                                Padding="18,9" Click="OnApplySuggestionClick" />
+                        <Button Content="忽略" Style="{StaticResource Button.FormGhost}" Padding="14,6"
+                                Margin="0,6,0,0" Click="OnIgnoreSuggestionClick" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <TextBlock x:Name="StatusText" FontSize="13" Foreground="#6B7280" TextWrapping="Wrap"
+                       Margin="2,10,0,0"
+                       Text="提示：在学校铃声响起的那一刻点“我听到铃声了”，越接近铃声越好。" />
+        </StackPanel>
+
+        <!-- 底部 -->
+        <Grid Grid.Row="5" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" FontSize="11" Foreground="#9AA3AF" TextWrapping="Wrap"
+                       VerticalAlignment="Center"
+                       Text="校准原理：偏差 = 听到铃声的时刻 − 程序显示的边界时刻；新误差 = 当前误差 + 偏差，自动夹在 ±60 秒内。" />
+            <Button Grid.Column="1" Content="关闭" Style="{StaticResource Button.FormGhost}"
+                    Padding="24,8" FontFamily="{StaticResource Font.Medium}" Click="OnCloseClick" />
+        </Grid>
+    </Grid>
+</Window>

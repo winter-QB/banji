@@ -1,4 +1,4 @@
-﻿namespace Banji.Core.Models;
+namespace Banji.Core.Models;
 
 /// <summary>一名学生。姓名与学号至少有一个必填（空行在导入时会被过滤）。</summary>
 public sealed class Student
@@ -6,6 +6,8 @@ public sealed class Student
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public double? Score { get; set; }
+    /// <summary>课堂积分（抽中答题/老师奖励等，本地统计）。</summary>
+    public int Points { get; set; }
     public string? Note { get; set; }
 
     public bool HasId => !string.IsNullOrWhiteSpace(Id);
@@ -18,7 +20,7 @@ public sealed class Student
     public string DisplayName => HasName ? Name.Trim() : Id.Trim();
     public string DisplayId => HasId ? Id.Trim() : "—";
 
-    public Student Clone() => new() { Id = Id, Name = Name, Score = Score, Note = Note };
+    public Student Clone() => new() { Id = Id, Name = Name, Score = Score, Points = Points, Note = Note };
 
     public override string ToString() => HasId && HasName ? $"{Id} {Name}" : DisplayName;
 }

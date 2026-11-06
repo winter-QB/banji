@@ -28,6 +28,15 @@ if (-not (Test-Path -LiteralPath $installerFull)) {
     throw "找不到安装程序：$installerFull（请先运行 build\build.ps1）"
 }
 
+# 期望版本号以主工程 csproj 为准（构建脚本会把它同步到安装器）
+$appVersion = "1.0.0"
+try {
+    [xml]$mainProjectXml = Get-Content -LiteralPath (Join-Path $root "src\Banji\Banji.csproj") -Raw
+    $versionNode = $mainProjectXml.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1
+    if ($versionNode -and $versionNode.Version) { $appVersion = [string]$versionNode.Version }
+} catch { }
+Write-Host "  期望程序版本：$appVersion" -ForegroundColor DarkGray
+
 $script:PassCount = 0
 $script:FailCount = 0
 $script:FailedItems = @()
@@ -172,7 +181,7 @@ foreach ($f in $FontFiles) {
 # ---------------------------------------------------------------------------
 Write-Title "3. 校验卸载信息注册表"
 Assert-RegValue $UninstallKey "DisplayName" "班机" "卸载信息 DisplayName"
-Assert-RegValue $UninstallKey "DisplayVersion" "1.0.0" "卸载信息 DisplayVersion"
+Assert-RegValue $UninstallKey "DisplayVersion" $appVersion "卸载信息 DisplayVersion"
 Assert-RegValue $UninstallKey "Publisher" "班机" "卸载信息 Publisher"
 Assert-RegValue $UninstallKey "InstallLocation" $installFull "卸载信息 InstallLocation"
 $displayIcon = Get-RegValue $UninstallKey "DisplayIcon"
