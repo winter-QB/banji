@@ -1,4 +1,4 @@
-# 《班机》架构契约（团队共享，改动须 Lead 批准）
+﻿# 《班机》架构契约（团队共享，改动须 Lead 批准）
 
 > 产品名：**班机**（Banji）。Windows 课堂管理桌面宠物应用。
 > 依据：`C:\Users\qmy\Desktop\《班机》开发文档.docx`。
@@ -91,7 +91,7 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
 ### 计时器
 
 - `ITimerService`：倒计时/正计时二选一；`StartCountdown(TimeSpan)` / `StartStopwatch()` / `Cancel()` / `AcknowledgeExpiry()`。
-- 每 100~250ms 发 `Tick`；倒计时归零发 `Expired`（只一次），`AppServices.Current.Notices.ShowTimerTimeout()` 由 Lead 接线（TimerService 只发事件）。
+- 每 100～250ms 发 `Tick`；倒计时归零发 `Expired`（只一次），`AppServices.Current.Notices.ShowTimerTimeout()` 由 Lead 接线（TimerService 只发事件）。
 - 正计时无超时提醒；可取消；取消后恢复空闲。
 - 显示：`TimerSnapshot.DisplayText`（`mm:ss`，超 1 小时 `h:mm:ss`）。
 
@@ -112,12 +112,12 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
 - 右键：保持悬浮样式，无额外反馈。
 - 自定义入口需有“恢复默认”，已默认时提示“已经是默认了！”，否则“恢复默认成功！”。
 
-气泡：圆形/大圆角，白底 50% 透明（可调），可选高斯模糊，2px `#3E6BFF` 描边，文字 `#2E69FF`，字号随字数自适应；弹出有动画；文字打字机效果（不能肉，间隔 20~40ms/字，可跳过）。
+气泡：圆形/大圆角，白底 50% 透明（可调），可选高斯模糊，2px `#3E6BFF` 描边，文字 `#2E69FF`，字号随字数自适应；弹出有动画；文字打字机效果（不能肉，间隔 20～40ms/字，可跳过）。
 - 抽签样式：顶部左对齐小字号 Thin “抽中的是”，中间固定字号 Bold 居中“学号”，下面灵活大字号 Bold 居中“姓名”。
 - 气泡最高层（Topmost + 重新压顶）。
 
 宠物：简单几何图形，两只眼睛，无鼻子嘴巴，可爱、可参考 Claude 橙色小东西；被点击（摸一摸）触发对话气泡；说话内容与高中科目相关（可温柔可吐槽），打字机效果；抽签/计时显示时气泡被征用。
-- 宠物整体缩放：`Settings.UiScale`，无上下限（输入框允许 0.05~20，滑块 0.3~3），_无级_。
+- 宠物整体缩放：`Settings.UiScale`，无上下限（输入框允许 0.05～20，滑块 0.3～3），_无级_。
 - 课表面板：展开当天课表（每行一节，下一节强调色 `#FF3030`，上课 10 分钟后转普通），两头顶小三角（一个折叠/展开课表，一个菜单），左下角小三角（向左展开功能按钮）。
 - 常驻信息框：每项一行，含 距上课/距下课、距放学+还剩几节；下课时把“距下课”行替换成“下课超时 mm:ss”显示 15 秒后恢复。
 
@@ -214,7 +214,7 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
 **版本规则（此后统一）**：语义化版本 `vMAJOR.MINOR.PATCH`；新功能→MINOR（本轮 **v1.2.0**），修 bug→PATCH，不兼容→MAJOR；预发布用 `-rc.N`；不使用 “SP1” 之类后缀。
 
 ### 11.1 共享契约（Lead 已实现）
-- `AppSettings` 新增：`PetScale`（宠物本体缩放 0.2~5）、`PanelScale`（课表/信息面板缩放 0.4~4）、`PanelOffsetX`/`PanelOffsetY`（面板相对默认位置偏移 DIP，±800）；`UiScale` 保留兼容（默认 1）。
+- `AppSettings` 新增：`PetScale`（宠物本体缩放 0.2～5）、`PanelScale`（课表/信息面板缩放 0.4～4）、`PanelOffsetX`/`PanelOffsetY`（面板相对默认位置偏移 DIP，±800）；`UiScale` 保留兼容（默认 1）。
 - 新增 `AiSettings Ai`：`ModelPath`/`ModelName`/`LastModelId`/`EnableAiQuips`/`AutoLoadModel`/`Threads`/`ContextSize`/`Temperature`/`MaxTokens`。
 - 新服务 `IAiService`（`Banji.Core.Abstractions/Ai.cs`）：`Status/LoadedModelName/LoadedModelPath/ModelDirectory/ModelOptions/StatusChanged/DownloadProgress`、`LoadModelAsync/Unload/TryAutoLoad/DownloadModelAsync/GenerateChatReplyAsync/TryGenerateQuipAsync/TryGenerateGreetingAsync`；DTO：`AiModelOption/AiDownloadProgress/AiChatMessage/AiChatRole/AiModelStatus`。
 - `AppServices.Current.Ai` 已接线；`Start()` 调用 `Ai.TryAutoLoad()`；新增窗口方法 `ShowChatWindow()` / `ShowAiModelManager()`。
