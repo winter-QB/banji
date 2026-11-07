@@ -1,4 +1,4 @@
-<Window x:Class="Banji.Views.SettingsWindow"
+﻿<Window x:Class="Banji.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="设置 - 班机"
@@ -26,7 +26,10 @@
                 <Setter Property="Foreground" Value="#3A4250" />
                 <Setter Property="Margin" Value="0,2" />
                 <Setter Property="Cursor" Value="Hand" />
-                <Setter Property="Focusable" Value="False" />
+                <!-- 不要设 Focusable=False！WPF ListBoxItem 只有在鼠标左键让 Focus() 成功时才会选中
+                     （见 ListBoxItem.HandleMouseButtonDown: Focus() 返回 false 就不通知 Selector），
+                     写成 False 会导致导航能悬浮高亮但点击不切换分区。 -->
+                <Setter Property="FocusVisualStyle" Value="{x:Null}" />
                 <Setter Property="HorizontalContentAlignment" Value="Stretch" />
                 <Setter Property="Template">
                     <Setter.Value>
@@ -231,7 +234,7 @@
                     <ListBoxItem Content="备份与恢复" Tag="backup" />
                 </ListBox>
 
-                <TextBlock DockPanel.Dock="Bottom" Text="班机 v1.4.0 · 设置会自动保存"
+                <TextBlock DockPanel.Dock="Bottom" Text="班机 v1.4.1 · 设置会自动保存"
                            FontFamily="{StaticResource Font.Regular}" FontSize="11"
                            Foreground="{StaticResource Brush.TextTertiary}" Margin="8,0,0,0" />
             </DockPanel>
