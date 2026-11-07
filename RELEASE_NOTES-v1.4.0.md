@@ -59,8 +59,8 @@
 
 | 文件 | 说明 |
 | --- | --- |
-| `Banji-Setup-1.4.0.exe` | 安装程序（约 213MB，无需管理员权限） |
-| `Banji-Portable-1.4.0.zip` | 免安装便携版（解压即用） |
+| `Banji-Setup-1.4.0.exe` | 安装程序（约 215MB，无需管理员权限） |
+| `Banji-Portable-1.4.0.zip` | 免安装便携版（约 103MB，解压即用） |
 | `README.md` | 完整使用说明 |
 | `RELEASE_NOTES-v1.4.0.md` | 本发布说明 |
 | `LICENSE.txt` | 鸿蒙字体许可证 |
