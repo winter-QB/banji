@@ -20,9 +20,11 @@ public sealed class ScheduleService : IScheduleService
 
     private readonly ITimetableService _timetable;
     private readonly ISettingsService _settings;
+    private readonly IWeekParityService? _weekParity;
 
-    public ScheduleService(ITimetableService timetable, ISettingsService settings)
+    public ScheduleService(ITimetableService timetable, ISettingsService settings, IWeekParityService? weekParity = null)
     {
+        _weekParity = weekParity;
         _timetable = timetable ?? throw new ArgumentNullException(nameof(timetable));
         _settings = settings ?? throw new ArgumentNullException(nameof(settings));
         _timetable.Changed += (_, _) => RaiseChanged();

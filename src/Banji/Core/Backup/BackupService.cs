@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Reflection;
 using System.Text.Json;
 using Banji.Core.Abstractions;
@@ -26,7 +26,8 @@ public sealed class BackupService : IBackupService
         "timetable.json",
         "overrides.json",
         "pick-history.json",
-        "pet-growth.json"
+        "pet-growth.json",
+        "duty.json"
     };
 
     private readonly string _rootDir;

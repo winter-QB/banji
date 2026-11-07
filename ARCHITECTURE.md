@@ -257,3 +257,35 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
 | `features-ui` | `Views/SettingsWindow.*`（提示预览改气泡、自动收起/折叠设置、隐藏开关）、`Tests/Settings*` |
 | `packaging` | v1.3.0 README/RELEASE_NOTES/构建/桌面发布夹 |
 禁止改共享文件（`AppSettings`、`Abstractions`、`Boot/AppServices`、`App.xaml*`、`Banji.csproj`、`Resources/**`、菜单以外别人的文件）；需要改先找 Lead。
+
+## 13. v1.4.0 契约（2026-11-07，Lead 已实现）
+
+**设计稿（最高依据）**：`docs/值周值日与单双周设计-v1.4.md`（§29 为最终确认决定，优先于前文）。
+
+### 13.1 已冻结的数据模型
+- 新增 `Core/Models/Duty.cs`：`DutyMode`、`DutyAssignmentMode`、`DutyTask`、`DutyAssignment`、`DutyGroup`、`DutyWeekOverride`、`CommitteeRole`、`SubjectRepRole`、`DutyReminderSettings`、`DutyDisplaySettings`、`DutyCheckInItem`、`DutyConfig`、`DutyTaskView`、`DutyScheduleView`。
+  - 关键：`DutyGroup.Assignments` 允许同一 `TaskId` 对应多个 `StudentId`（一个岗位安排 2 人）；岗位人数可在组内覆盖。
+- `Core/Models/Timetable.cs`：`WeekType { All, Odd, Even }`、`WeekParity { Odd, Even }`、`WeekParityOverrideMode { Auto, Odd, Even }`；`TimetableEntry.Weeks`（默认 All）；`WeekTimetable.SchemaVersion = 2`；新增 `CourseAt(day, period, WeekParity)`（优先级：单/双专用 → 通用）。
+- `AppSettings` 新增：`SemesterFirstWeekMonday`（开学第一周周一，值周+单双周共用，首次配置必填）、`EnableWeekParity`、`WeekParityAnchorDate`、`FirstWeekIsOdd`、`ShowWeekNumberOnPet`、`NoticeIncludeWeekParity`、`WeekParityOverride`、`WeekParityOverrideWeekStart`、`ShowDutyOnPet`、`DutySetupCompleted`。
+
+### 13.2 已冻结的服务
+- `IWeekParityService`（`Core/WeekParity/WeekParityService.cs`，已由 Lead 写最小实现）：`Enabled/AnchorMonday/CurrentParity/OverrideMode/IsCurrentWeekOverridden/GetParity(date)/GetWeekNumber(date)/Changed/Refresh()`；`ToMonday()` 辅助。
+- `IDutyService`（`Core/Duty/DutyService.cs`，Lead 写的最小实现，core-roster 负责完整替换）：`Config/IsConfigured/NeedsFirstTimeSetup/Changed/Save/Reload/GetSchedule(date)/GetRotationPreview(from,weeks)/SetWeekOverride/CheckIn/GetPetPanelLines/BuildCopyText`。
+- `AppServices` 已接线：`AppServices.Current.WeekParity`、`AppServices.Current.Duty`；新增 `ShowDutyWindow()`。
+- `ScheduleService` 构造函数已加可选 `IWeekParityService?` 参数（AppServices 已传入），core-schedule 负责真正使用它。
+- `BackupService.DataFiles` 已加入 `duty.json`。
+- 版本：主程序 csproj = **1.4.0**。
+
+### 13.3 QA 命令（Lead 已加）
+`--cmd duty`（打开窗口）、`--cmd parity`（当前周/单双周/锚点）、`--cmd duty-today`（今日轮值+面板行）、`--cmd set-date semester|parityanchor yyyy-MM-dd`；`--cmd set` 新增键：`weekparity`、`firstweekodd`、`shownum`、`noticeparity`、`dutyonpet`。
+
+### 13.4 v1.4 文件作用域
+| 负责人 | 文件 |
+|---|---|
+| `core-roster` | `Core/Duty/**`（完整 DutyService + 预设/测试）、`Tests/Duty*` |
+| `features-ui` | `Views/DutyWindow.*`、`Views/DutySetupWizard.*`（新）、`Views/SettingsWindow.*`（值日/单双周设置）、`Views/DashboardWindow.*`、`Tests/Settings*` |
+| `core-schedule` | `Core/WeekParity/**`、`Core/Schedule/**`、`Core/Timetable/**`、`Views/TimetableWindow.*`、`Views/TimetableImportWindow.*`、`Tests/Parity*` |
+| `pet-ui` | `Views/PetWindow.*`、`Views/MenuFlyout.*`、`Controls/Pet/**`、`Tests/PetUiV14*` |
+| `ai-chat` | `Core/Ai/**`（系统提示词注入当前值日/单双周上下文）、`Tests/Ai*` |
+| `packaging` | v1.4.0 README/RELEASE_NOTES/构建/桌面发布夹 |
+禁止改共享文件（Models/Abstractions/Settings/Boot/App.xaml*/csproj/Resources/别人的窗口）；需要改先找 Lead。

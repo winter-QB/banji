@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Threading;
 using Banji.Core.Abstractions;
 using Banji.Core.Boot;
@@ -161,7 +161,32 @@ public partial class App : Application
                 svc.PetWindow?.UnfoldTimetable();
                 Log.Info("QA：课表已展开");
                 break;
-            case "toast":
+            case "duty":
+                svc.ShowDutyWindow();
+                break;
+            case "parity":
+                Log.Info($"单双周：enabled={svc.Settings.Current.EnableWeekParity} anchor={svc.WeekParity.AnchorMonday?.ToString("yyyy-MM-dd") ?? "-"} 本周=第{svc.WeekParity.GetWeekNumber(DateOnly.FromDateTime(DateTime.Now))}周/{svc.WeekParity.CurrentParity} override={svc.Settings.Current.WeekParityOverride}");
+                break;
+            case "duty-today":
+            {
+                var day = DateOnly.FromDateTime(DateTime.Now);
+                var sched = svc.Duty.GetSchedule(day);
+                Log.Info($"值日/值周：mode={sched.Mode} group={sched.GroupName ?? "-"} paused={sched.IsPaused} tasks={sched.Tasks.Count} needsSetup={svc.Duty.NeedsFirstTimeSetup}");
+                foreach (var line in svc.Duty.GetPetPanelLines(day)) Log.Info("  面板行: " + line);
+                break;
+            }
+            case "set-date":
+                if (args.Length > 2 && DateOnly.TryParse(args[2], out var dateValue))
+                {
+                    var key = args[1].ToLowerInvariant();
+                    AppServices.RunOnUi(() => svc.Settings.Update(x =>
+                    {
+                        if (key == "semester") x.SemesterFirstWeekMonday = dateValue;
+                        else if (key == "parityanchor") x.WeekParityAnchorDate = dateValue;
+                    }));
+                    Log.Info($"QA：设置 {key} 日期 = {dateValue:yyyy-MM-dd}");
+                }
+                break;            case "toast":
                 // QA：--cmd toast "标题" "内容"（测试气泡提醒）
                 if (args.Length > 1)
                 {
@@ -303,6 +328,11 @@ public partial class App : Application
                                 case "petidle": x.PetIdleCollapseMinutes = (int)settingValue; break;
                                 case "tableidle": x.TimetableIdleFoldMinutes = (int)settingValue; break;
                                 case "noticehold": x.NoticeBubbleHoldSeconds = (int)settingValue; break;
+                                case "weekparity": x.EnableWeekParity = settingValue > 0.5; break;
+                                case "firstweekodd": x.FirstWeekIsOdd = settingValue > 0.5; break;
+                                case "shownum": x.ShowWeekNumberOnPet = settingValue > 0.5; break;
+                                case "noticeparity": x.NoticeIncludeWeekParity = settingValue > 0.5; break;
+                                case "dutyonpet": x.ShowDutyOnPet = settingValue > 0.5; break;
                             }
                         });
                         svc.Clock.Refresh();

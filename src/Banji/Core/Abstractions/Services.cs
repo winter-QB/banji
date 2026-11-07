@@ -162,3 +162,69 @@ public sealed class NoticeToast
     /// <summary>保持毫秒数（默认取设置 NoticeBubbleHoldSeconds*1000）。</summary>
     public int HoldMilliseconds { get; init; } = 7000;
 }
+
+// ============================================================================
+// v1.4.0：单双周 + 值周/值日（Lead 冻结契约）
+// ============================================================================
+
+/// <summary>单双周解析服务：按锚点周自动推算，支持本周手动覆盖。</summary>
+public interface IWeekParityService
+{
+    bool Enabled { get; }
+    /// <summary>解析后的锚点周一（WeekParityAnchorDate，缺省用 SemesterFirstWeekMonday）。</summary>
+    DateOnly? AnchorMonday { get; }
+    WeekParity CurrentParity { get; }
+    WeekParityOverrideMode OverrideMode { get; }
+    /// <summary>本周是否处于手动覆盖（跨周自动恢复 Auto）。</summary>
+    bool IsCurrentWeekOverridden { get; }
+    WeekParity GetParity(DateOnly date);
+    /// <summary>第几周（锚点周 = 第 1 周）；锚点之前为 0 或负数。</summary>
+    int GetWeekNumber(DateOnly date);
+    event EventHandler? Changed;
+    void Refresh();
+}
+
+/// <summary>某一周的轮换信息（展示/打印预览用）。</summary>
+public sealed class DutyWeekInfo
+{
+    public DateOnly WeekMonday { get; init; }
+    public string? GroupId { get; init; }
+    public string? GroupName { get; init; }
+    public bool Paused { get; init; }
+    public string Note { get; init; } = "";
+}
+
+/// <summary>
+/// 值周/值日服务：分组轮换 + 固定任职 + 提醒计算 + 展示文案。
+/// 配置持久化到 %APPDATA%\Banji\duty.json，并纳入备份。
+/// </summary>
+public interface IDutyService
+{
+    DutyConfig Config { get; }
+    /// <summary>是否完成了首次配置（岗位/分组/开学第一周等）。</summary>
+    bool IsConfigured { get; }
+    /// <summary>第一次配置未完成时，UI 需要强制引导用户设置开学第一周（用户确认稿要求）。</summary>
+    bool NeedsFirstTimeSetup { get; }
+    event EventHandler? Changed;
+
+    void Save(DutyConfig config);
+    void Reload();
+
+    /// <summary>解析某一天的值日/值周安排（自动轮换 + 手动覆盖 + 黑板类置顶排序）。</summary>
+    DutyScheduleView GetSchedule(DateOnly date);
+
+    /// <summary>未来 N 周的轮换预览（值周模式；值日模式返回未来 N 天以周汇总也可）。</summary>
+    IReadOnlyList<DutyWeekInfo> GetRotationPreview(DateOnly fromAnyDay, int weeks);
+
+    /// <summary>手动覆盖某一周：换组 / 暂停（groupId=null 且 paused=false 表示恢复自动）。</summary>
+    void SetWeekOverride(DateOnly weekMonday, string? groupId, bool paused, string? note);
+
+    /// <summary>值日打卡（可选；AwardPointsOnCheckIn 时给参与学生加积分）。</summary>
+    void CheckIn(DateOnly date);
+
+    /// <summary>宠物面板展示行（含黑板类置顶、放学后轮值信息替换逻辑由 PetWindow 配合）。</summary>
+    IReadOnlyList<string> GetPetPanelLines(DateOnly date);
+
+    /// <summary>复制为文本（发班级群用；v1.4 不做打印）。</summary>
+    string BuildCopyText(DateOnly date);
+}

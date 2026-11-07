@@ -1,8 +1,9 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using System.Windows.Threading;
 using Banji.Core.Abstractions;
 using Banji.Core.Ai;
+using Banji.Core.Duty;
 using Banji.Core.Audio;
 using Banji.Core.Backup;
 using Banji.Core.Grouping;
@@ -16,6 +17,7 @@ using Banji.Core.Schedule;
 using Banji.Core.Settings;
 using Banji.Core.Timers;
 using Banji.Core.Timetable;
+using Banji.Core.WeekParityEngine;
 using Banji.Views;
 
 namespace Banji.Core.Boot;
@@ -45,6 +47,9 @@ public sealed class AppServices
     public IBackupService Backup { get; }
     // v1.2.0：端侧生成式 AI
     public IAiService Ai { get; }
+    // v1.4.0：单双周 / 值周·值日
+    public IWeekParityService WeekParity { get; }
+    public IDutyService Duty { get; }
 
     public PetWindow? PetWindow { get; private set; }
 
@@ -64,7 +69,9 @@ public sealed class AppServices
         IGroupingService grouping,
         IPetGrowthService growth,
         IBackupService backup,
-        IAiService ai)
+        IAiService ai,
+        IWeekParityService weekParity,
+        IDutyService duty)
     {
         Settings = settings;
         Rosters = rosters;
@@ -79,6 +86,8 @@ public sealed class AppServices
         Growth = growth;
         Backup = backup;
         Ai = ai;
+        WeekParity = weekParity;
+        Duty = duty;
         Wire();
     }
 
@@ -86,10 +95,12 @@ public sealed class AppServices
     {
         if (_current is not null) return _current;
         var settings = new SettingsService();
+        var weekParity = new WeekParityService(settings);
         var timetable = new TimetableService();
-        var schedule = new ScheduleService(timetable, settings);
+        var schedule = new ScheduleService(timetable, settings, weekParity);
         var clock = new ClassClock(schedule);
         var rosters = new RosterService();
+        var duty = new DutyService(settings, rosters);
         var picker = new PickService(rosters, settings);
         var timers = new TimerService();
         var audio = new AudioService();
@@ -98,7 +109,7 @@ public sealed class AppServices
         var growth = new PetGrowthService();
         var backup = new BackupService();
         var ai = new AiService(settings);
-        _current = new AppServices(settings, rosters, picker, timetable, schedule, clock, timers, audio, notices, grouping, growth, backup, ai);
+        _current = new AppServices(settings, rosters, picker, timetable, schedule, clock, timers, audio, notices, grouping, growth, backup, ai, weekParity, duty);
         return _current;
     }
 
@@ -348,6 +359,8 @@ public sealed class AppServices
         w.ShowInTaskbar = true;
         return w;
     }
+
+    public DutyWindow ShowDutyWindow() => ShowWindow(() => new DutyWindow());
 
     public AiModelDialog ShowAiModelManager()
     {

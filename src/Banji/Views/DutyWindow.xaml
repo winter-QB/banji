@@ -1,0 +1,9 @@
+<Window x:Class="Banji.Views.DutyWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="值日与轮值 - 班机" Width="980" Height="760" WindowStartupLocation="CenterScreen">
+    <Grid>
+        <TextBlock Text="值日与轮值（v1.4 开发中）" HorizontalAlignment="Center" VerticalAlignment="Center"
+                   FontFamily="{StaticResource Font.Regular}" FontSize="16" Foreground="#6B7280"/>
+    </Grid>
+</Window>

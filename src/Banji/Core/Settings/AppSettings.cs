@@ -55,6 +55,28 @@ public sealed class AppSettings
     public int TimetableIdleFoldMinutes { get; set; } = 10;
     /// <summary>非全屏气泡提醒保持秒数（默认 7）。</summary>
     public int NoticeBubbleHoldSeconds { get; set; } = 7;
+
+    // ---------------- v1.4.0：单双周 / 值周·值日 ----------------
+    /// <summary>开学第一周星期一（值周轮换起点与单双周锚点共用；null = 未设置，首次配置必填）。</summary>
+    public DateOnly? SemesterFirstWeekMonday { get; set; }
+    /// <summary>启用单双周课表（默认关；关闭时行为与 v1.3 一致）。</summary>
+    public bool EnableWeekParity { get; set; } = false;
+    /// <summary>单双周锚点周一；null = 使用 SemesterFirstWeekMonday。</summary>
+    public DateOnly? WeekParityAnchorDate { get; set; }
+    /// <summary>锚点周是否为单周（默认是）。</summary>
+    public bool FirstWeekIsOdd { get; set; } = true;
+    /// <summary>宠物面板显示“第 X 周 · 单/双周”。</summary>
+    public bool ShowWeekNumberOnPet { get; set; } = true;
+    /// <summary>上课/下课气泡文案附带单双周后缀。</summary>
+    public bool NoticeIncludeWeekParity { get; set; } = false;
+    /// <summary>本周单双周手动覆盖（调休/考试周用）；下周自动恢复 Auto。</summary>
+    public WeekParityOverrideMode WeekParityOverride { get; set; } = WeekParityOverrideMode.Auto;
+    /// <summary>手动覆盖生效的那一周（周一）；跨周自动恢复 Auto。</summary>
+    public DateOnly? WeekParityOverrideWeekStart { get; set; }
+    /// <summary>宠物课表上方展示值日/值周信息行。</summary>
+    public bool ShowDutyOnPet { get; set; } = true;
+    /// <summary>值周/值日首次配置向导是否已完成（未完成时首次打开会强制引导设置开学第一周）。</summary>
+    public bool DutySetupCompleted { get; set; } = false;
     /// <summary>宠物距屏幕右边缘的偏移（px，缩放前基准单位）。</summary>
     public double PetRightMargin { get; set; } = 0;
     /// <summary>宠物距工作区底部的偏移（px）。</summary>
