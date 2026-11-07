@@ -44,7 +44,7 @@ dotnet publish src\Banji.Installer\Banji.Installer.csproj -c Release -r win-x64 
 
 ```
 payload.zip
-├─ app\                      → 解压到安装目录根（Banji.exe（含 LLamaSharp 原生库）、Assets\Templates 等）
+├─ app\                      → 解压到安装目录根（Banji.exe（含 LLamaSharp 原生库）、msvcp140.dll（VC++ 运行库）、Assets\Templates 等）
 ├─ fonts\                    → 解压到 安装目录\Fonts（6 个 HarmonyOS Sans SC ttf）
 ├─ README.md                 → 安装目录\README.md
 └─ HarmonyOS_Sans_LICENSE.txt→ 安装目录\HarmonyOS_Sans_LICENSE.txt

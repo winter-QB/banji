@@ -24,6 +24,7 @@ public partial class SettingsWindow : Window
     private string? _initialSection;
     private ButtonStylePreview? _buttonPreview;
     private bool _subscribed;
+    private bool _suppressDutyRebuild;
 
     // 考试倒计时编辑区的草稿（避免直接改 Settings 里的对象）+ 养成统计显示控件
     private List<CountdownEventItem> _countdownDraft = new();
@@ -39,7 +40,7 @@ public partial class SettingsWindow : Window
     private TextBlock? _aiModelDirText;
     private StackPanel? _aiModelListPanel;
 
-    /// <summary>可选：打开时定位到的分区（general/class/pick/buttons/bubble/pet/notify/ai/countdown/timer/preview/backup）。</summary>
+    /// <summary>可选：打开时定位到的分区（general/class/pick/duty/buttons/bubble/pet/notify/ai/countdown/timer/preview/backup）。</summary>
     public string? InitialSection
     {
         get => _initialSection;
@@ -82,6 +83,8 @@ public partial class SettingsWindow : Window
             catch (Exception ex) { Log.Error("设置窗口订阅养成统计失败", ex); }
             try { AppServices.Current.Ai.StatusChanged += OnAiStatusChanged; }
             catch (Exception ex) { Log.Error("设置窗口订阅 AI 状态失败", ex); }
+            try { AppServices.Current.Duty.Changed += OnDutyChanged; }
+            catch (Exception ex) { Log.Error("设置窗口订阅值日配置失败", ex); }
         }
 
         _built.Clear();
@@ -96,6 +99,8 @@ public partial class SettingsWindow : Window
             try { AppServices.Current.Growth.Changed -= OnGrowthChanged; }
             catch { /* 退出过程中可能已不可用 */ }
             try { AppServices.Current.Ai.StatusChanged -= OnAiStatusChanged; }
+            catch { /* 同上 */ }
+            try { AppServices.Current.Duty.Changed -= OnDutyChanged; }
             catch { /* 同上 */ }
         }
         try
@@ -132,6 +137,19 @@ public partial class SettingsWindow : Window
         }
     });
 
+    private void OnDutyChanged(object? sender, EventArgs e) => AppServices.RunOnUi(() =>
+    {
+        try
+        {
+            if (_suppressDutyRebuild) return;
+            if (_currentSection == "duty") RebuildSection("duty");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("设置窗口刷新值日配置失败", ex);
+        }
+    });
+
     private void OnNavSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (NavList.SelectedItem is ListBoxItem { Tag: string key }) ShowSection(key);
@@ -156,6 +174,7 @@ public partial class SettingsWindow : Window
     {
         "class" or "classroom" or "clock" => "class",
         "pick" or "roster" => "pick",
+        "duty" or "rotation" or "值日" or "值周" or "值日与轮值" => "duty",
         "buttons" or "button" => "buttons",
         "bubble" or "bubbles" => "bubble",
         "pet" or "growth" => "pet",
@@ -184,6 +203,7 @@ public partial class SettingsWindow : Window
     {
         "class" => BuildClassSection(),
         "pick" => BuildPickSection(),
+        "duty" => BuildDutySection(),
         "buttons" => BuildButtonsSection(),
         "bubble" => BuildBubbleSection(),
         "pet" => BuildPetSection(),

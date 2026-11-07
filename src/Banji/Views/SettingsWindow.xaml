@@ -219,6 +219,7 @@
                     <ListBoxItem Content="通用" Tag="general" />
                     <ListBoxItem Content="课堂" Tag="class" />
                     <ListBoxItem Content="抽签" Tag="pick" />
+                    <ListBoxItem Content="值日与轮值" Tag="duty" />
                     <ListBoxItem Content="按钮样式" Tag="buttons" />
                     <ListBoxItem Content="气泡" Tag="bubble" />
                     <ListBoxItem Content="宠物" Tag="pet" />
@@ -230,7 +231,7 @@
                     <ListBoxItem Content="备份与恢复" Tag="backup" />
                 </ListBox>
 
-                <TextBlock DockPanel.Dock="Bottom" Text="班机 v1.3.0 · 设置会自动保存"
+                <TextBlock DockPanel.Dock="Bottom" Text="班机 v1.4.0 · 设置会自动保存"
                            FontFamily="{StaticResource Font.Regular}" FontSize="11"
                            Foreground="{StaticResource Brush.TextTertiary}" Margin="8,0,0,0" />
             </DockPanel>

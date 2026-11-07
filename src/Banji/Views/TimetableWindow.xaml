@@ -13,6 +13,7 @@
     <Grid Margin="20,16,20,14">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
@@ -53,8 +54,48 @@
             </StackPanel>
         </Grid>
 
+        <!-- ===================== 单双周页签 + 工具（启用单双周后显示） ===================== -->
+        <Border x:Name="ParityBar" Grid.Row="1" Visibility="Collapsed"
+                Background="White" CornerRadius="10" BorderBrush="#E5E9F2" BorderThickness="1"
+                Padding="12,8" Margin="0,0,0,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="单双周" FontSize="13" Foreground="#6B7280" VerticalAlignment="Center"
+                               Margin="2,0,10,0" />
+                    <Button x:Name="BtnPageAll" Content="通用" Style="{StaticResource Button.Form}"
+                            FontFamily="{StaticResource Font.Medium}" Padding="18,6" Margin="0,0,6,0"
+                            Click="OnParityPageAllClick" />
+                    <Button x:Name="BtnPageOdd" Content="单周" Style="{StaticResource Button.FormGhost}"
+                            FontFamily="{StaticResource Font.Medium}" Padding="18,6" Margin="0,0,6,0"
+                            Click="OnParityPageOddClick" />
+                    <Button x:Name="BtnPageEven" Content="双周" Style="{StaticResource Button.FormGhost}"
+                            FontFamily="{StaticResource Font.Medium}" Padding="18,6"
+                            Click="OnParityPageEvenClick" />
+                </StackPanel>
+
+                <TextBlock x:Name="ParityHint" Grid.Column="1" FontSize="12" Foreground="#6B7280"
+                           VerticalAlignment="Center" Margin="18,0,10,0" TextTrimming="CharacterEllipsis" />
+
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="BtnCopyAll" Content="把通用复制到本页" Style="{StaticResource Button.FormGhost}"
+                            FontSize="12" Padding="12,6" Margin="0,0,6,0" Click="OnCopyAllToPageClick" />
+                    <Button x:Name="BtnClearPage" Content="清空本页专用" Style="{StaticResource Button.FormGhost}"
+                            FontSize="12" Padding="12,6" Margin="0,0,6,0" Click="OnClearPageClick" />
+                    <Button x:Name="BtnRestoreAll" Content="恢复为通用" Style="{StaticResource Button.FormGhost}"
+                            FontSize="12" Padding="12,6" Click="OnRestoreAllClick" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+
         <!-- ===================== 主体：课表 + 临时换课面板 ===================== -->
-        <Grid Grid.Row="1">
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -132,7 +173,7 @@
         </Grid>
 
         <!-- ===================== 底部信息 ===================== -->
-        <Grid Grid.Row="2" Margin="0,12,0,0">
+        <Grid Grid.Row="3" Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
@@ -140,6 +181,7 @@
             <TextBlock x:Name="SourceInfo" Grid.Column="0" FontSize="12" Foreground="#6B7280"
                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock x:Name="WeekParityInfo" FontSize="12" Foreground="#8A5A00" Margin="0,0,16,0" />
                 <TextBlock x:Name="PhaseInfo" FontSize="12" Foreground="#317FFF" Margin="0,0,16,0" />
                 <TextBlock x:Name="OffsetInfo" FontSize="12" Foreground="#6B7280" />
             </StackPanel>

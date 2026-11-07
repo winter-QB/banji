@@ -80,7 +80,7 @@ $backdrop = Start-Process -FilePath "powershell" -ArgumentList @(
     "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "tools\backdrop.ps1",
     "-Mode", $Mode, "-X", "$bx", "-Y", "$by", "-Width", "$bw", "-Height", "$bh"
 ) -PassThru -WindowStyle Hidden
-Start-Sleep -Milliseconds 900
+Start-Sleep -Milliseconds 2600  # pet-ui: backdrop(PowerShell+WinForms) 冷启动约 1.2~2.2s，900ms 太短会误报未启动
 
 # 安全校验：背景窗口必须真的存在且置顶，否则截图可能拍到用户桌面（隐私风险）→ 直接中止
 $topFlags = 0x0001 -bor 0x0002 -bor 0x0010 -bor 0x0040
@@ -127,3 +127,4 @@ try {
 finally {
     if (-not $backdrop.HasExited) { Stop-Process -Id $backdrop.Id -Force -ErrorAction SilentlyContinue }
 }
+

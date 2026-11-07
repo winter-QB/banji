@@ -1,4 +1,4 @@
-﻿using System.Reflection;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using Banji.Core.Infrastructure;
 
@@ -249,7 +249,10 @@ public static class AiNativeLoader
             }
         }
 
-        // 1) 程序目录（打包应随包分发）
+        // 1) 程序目录（打包应随包分发；单文件发布时 AppContext.BaseDirectory 是临时解包目录，
+        //    所以必须额外用 Exe 真实目录，确保随包的 msvcp140.dll 优先命中）
+        var exeDir = Path.GetDirectoryName(Environment.ProcessPath ?? "");
+        if (!string.IsNullOrWhiteSpace(exeDir)) Add(Path.Combine(exeDir, "msvcp140.dll"));
         Add(Path.Combine(baseDir, "msvcp140.dll"));
         // 2) 原生库目录（runtimes\rid\native\*）
         foreach (var (dir, _) in CandidateDirectories())

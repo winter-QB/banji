@@ -60,9 +60,14 @@ public sealed class ScheduleService : IScheduleService
         var date = DateOnly.FromDateTime(now);
         var dayOverride = _timetable.GetOverride(date);
 
+        // v1.4.0：单双周（关闭/未注入时 null → 旧逻辑，行为与 v1.3 完全一致）
+        var parity = ResolveParity(date);
+        var paritEnabled = parity is not null;
+
         // 周末默认“无课表”；但若课表里确实给周末排了课（周六上课 / 调休补课）或存在临时换课，
         // 则按正常上课日处理（DevSeed 的周末演示数据也依赖这一点）。
-        if (day is DayOfWeek.Saturday or DayOfWeek.Sunday && !HasWeekendSchedule(timetable, day, dayOverride))
+        if (day is DayOfWeek.Saturday or DayOfWeek.Sunday
+            && !HasWeekendSchedule(timetable, day, dayOverride, parity, paritEnabled))
         {
             return new ScheduleSnapshot
             {
@@ -73,7 +78,7 @@ public sealed class ScheduleService : IScheduleService
             };
         }
 
-        var occurrences = BuildOccurrences(timetable, day, now.Date, offset, dayOverride);
+        var occurrences = BuildOccurrences(timetable, day, now.Date, offset, dayOverride, parity);
         if (occurrences.Count == 0)
         {
             // 今天所有课都被取消（或课表结构异常）——视为今天无课。
@@ -137,18 +142,33 @@ public sealed class ScheduleService : IScheduleService
         };
     }
 
-    /// <summary>周末是否真的排了课（周六上课 / 调休补课 / 临时换课）。</summary>
-    private static bool HasWeekendSchedule(WeekTimetable timetable, DayOfWeek day, DayOverride? dayOverride)
+    /// <summary>
+    /// v1.4.0：解析某天的单双周。返回 null = 单双周功能关闭/未注入（走 v1.3 的通用课程解析）。
+    /// </summary>
+    private WeekParity? ResolveParity(DateOnly date)
     {
+        if (_weekParity is null || !_weekParity.Enabled) return null;
+        return _weekParity.GetParity(date);
+    }
+
+    /// <summary>周末是否真的排了课（周六上课 / 调休补课 / 临时换课；单双周开启时按当周筛选）。</summary>
+    private static bool HasWeekendSchedule(
+        WeekTimetable timetable, DayOfWeek day, DayOverride? dayOverride, WeekParity? parity, bool parityEnabled)
+    {
+        bool HasCourse(TimetableEntry entry) => !string.IsNullOrWhiteSpace(entry.Course);
+        bool MatchesWeek(TimetableEntry entry) => !parityEnabled
+            || entry.Weeks == WeekType.All
+            || (parity == WeekParity.Odd ? entry.Weeks == WeekType.Odd : entry.Weeks == WeekType.Even);
+
+        var hasAnyCourse = timetable.EntriesFor(day).Any(e => MatchesWeek(e) && HasCourse(e));
+
         if (dayOverride is not null)
         {
             if (dayOverride.CourseReplacements.Count > 0) return true;
-            var hasCancelled = dayOverride.CancelledPeriods.Count > 0;
-            var hasAnyCourse = timetable.EntriesFor(day).Any(e => !string.IsNullOrWhiteSpace(e.Course));
-            if (hasCancelled && !hasAnyCourse) return false;
+            if (dayOverride.CancelledPeriods.Count > 0 && !hasAnyCourse) return false;
         }
 
-        return timetable.EntriesFor(day).Any(e => !string.IsNullOrWhiteSpace(e.Course));
+        return hasAnyCourse;
     }
 
     public IReadOnlyList<ClassBoundary> UpcomingBoundaries(DateTime now, int count = 6)
@@ -231,9 +251,13 @@ public sealed class ScheduleService : IScheduleService
         return result;
     }
 
-    /// <summary>按课表结构 + 临时换课，生成当天所有“实际要上的课”（已应用铃声误差偏移）。</summary>
+    /// <summary>
+    /// 按课表结构 + 临时换课 + 单双周，生成当天所有“实际要上的课”（已应用铃声误差偏移）。
+    /// 课程解析优先级：临时换课（DayOverride）&gt; 单/双专用 &gt; 通用。
+    /// </summary>
     private static List<CourseOccurrence> BuildOccurrences(
-        WeekTimetable timetable, DayOfWeek day, DateTime date, TimeSpan offset, DayOverride? dayOverride)
+        WeekTimetable timetable, DayOfWeek day, DateTime date, TimeSpan offset, DayOverride? dayOverride,
+        WeekParity? parity)
     {
         var list = new List<CourseOccurrence>();
         foreach (var period in timetable.Periods.OrderBy(p => p.Start).ThenBy(p => p.Index))
@@ -247,9 +271,20 @@ public sealed class ScheduleService : IScheduleService
 
             string course;
             if (dayOverride is not null && dayOverride.CourseReplacements.TryGetValue(period.Index, out var replaced))
+            {
+                // 1) 临时换课优先级最高
                 course = replaced ?? "";
+            }
+            else if (parity is { } currentParity)
+            {
+                // 2) 与当前单双周匹配的专用条目 → 3) 通用条目
+                course = timetable.CourseAt(day, period.Index, currentParity) ?? "";
+            }
             else
-                course = timetable.CourseAt(day, period.Index) ?? "";
+            {
+                // 单双周关闭：只按通用解析（专用条目忽略），与 v1.3 迁移后的行为一致
+                course = timetable.EntryAt(day, period.Index, WeekType.All)?.Course ?? "";
+            }
 
             list.Add(new CourseOccurrence
             {

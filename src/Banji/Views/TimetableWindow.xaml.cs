@@ -6,12 +6,14 @@ using Banji.Core.Abstractions;
 using Banji.Core.Boot;
 using Banji.Core.Infrastructure;
 using Banji.Core.Models;
+using Banji.Core.Timetable;
 
 namespace Banji.Views;
 
 /// <summary>
 /// 课表管理窗口：周视图网格（行 = 节次+时间，列 = 周一到周日）、点格编辑课程、
 /// 导入课表 / 课堂时段设置 / 临时换课（日期 + 按节替换/取消 + 备注 + 已有覆盖列表）、今天/本周切换。
+/// v1.4.0：启用单双周后顶部出现「通用 / 单周 / 双周」三页签与复制/清空/恢复工具。
 /// </summary>
 public partial class TimetableWindow : Window
 {
@@ -22,9 +24,13 @@ public partial class TimetableWindow : Window
     private static readonly Brush Accent = MakeBrush("#FF3030");
     private static readonly Brush Success = MakeBrush("#22A06B");
     private static readonly Brush Warm = MakeBrush("#FF9F1C");
+    private static readonly Brush ParityOdd = MakeBrush("#E07B00");
+    private static readonly Brush ParityEven = MakeBrush("#7C3AED");
 
     private readonly ITimetableService _timetable;
     private readonly IScheduleService _schedule;
+    private readonly IWeekParityService _weekParity;
+    private readonly TimetableService? _concreteTimetable;
     private readonly Dictionary<int, TextBox> _replacementBoxes = new();
     private readonly Dictionary<int, CheckBox> _cancelChecks = new();
 
@@ -34,19 +40,28 @@ public partial class TimetableWindow : Window
     private bool _loadingOverride;
     private bool _suppressRefresh;
     private bool _committing;
+    private bool _settingsSubscribed;
+
+    /// <summary>当前编辑页签（v1.4.0）：通用 / 单周 / 双周。</summary>
+    private WeekType _parityPage = WeekType.All;
 
     // 内联编辑状态
     private (DayOfWeek Day, int PeriodIndex)? _editingTarget;
     private TextBox? _editingBox;
     private TextBlock? _editingTextBlock;
+    private StackPanel? _editingStack;
+    private TextBlock? _editingBadge;
     private string _editingOriginal = "";
     private string _editingDisplay = "";
+    private WeekType _editingPage = WeekType.All;
 
     public TimetableWindow()
     {
         InitializeComponent();
         _timetable = AppServices.Current.Timetable;
         _schedule = AppServices.Current.Schedule;
+        _weekParity = AppServices.Current.WeekParity;
+        _concreteTimetable = _timetable as TimetableService;
 
         Loaded += OnLoaded;
         Closed += OnClosed;
@@ -59,6 +74,9 @@ public partial class TimetableWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         _timetable.Changed += OnTimetableChanged;
+        _weekParity.Changed += OnParityChanged;
+        AppServices.Current.Settings.Changed += OnSettingsChanged;
+        _settingsSubscribed = true;
         UpdateViewButtons();
         RefreshAll();
     }
@@ -66,6 +84,22 @@ public partial class TimetableWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         _timetable.Changed -= OnTimetableChanged;
+        _weekParity.Changed -= OnParityChanged;
+        if (_settingsSubscribed) AppServices.Current.Settings.Changed -= OnSettingsChanged;
+    }
+
+    private void OnParityChanged(object? sender, EventArgs e) => RefreshSafely();
+
+    private void OnSettingsChanged(object? sender, EventArgs e) => RefreshSafely();
+
+    private void RefreshSafely()
+    {
+        AppServices.RunOnUi(() =>
+        {
+            if (_committing) return;
+            CancelEdit();
+            RefreshAll();
+        });
     }
 
     private void OnTimetableChanged(object? sender, EventArgs e)
@@ -83,6 +117,7 @@ public partial class TimetableWindow : Window
     {
         var timetable = _timetable.Current;
         _days = ActiveDays(timetable);
+        UpdateParityBar(timetable);
 
         if (_weekMode)
         {
@@ -108,13 +143,11 @@ public partial class TimetableWindow : Window
         {
             DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday
         };
-        if (timetable.Days.ContainsKey(DayOfWeek.Saturday) || timetable.Days.ContainsKey(DayOfWeek.Sunday) ||
-            (timetable.Days.TryGetValue(DayOfWeek.Saturday, out var sat) && sat.Count > 0) ||
-            (timetable.Days.TryGetValue(DayOfWeek.Sunday, out var sun) && sun.Count > 0))
-        {
+        // 周末只有实际排了课才显示对应列
+        if (timetable.EntriesFor(DayOfWeek.Saturday).Any(e => !string.IsNullOrWhiteSpace(e.Course)))
             days.Add(DayOfWeek.Saturday);
+        if (timetable.EntriesFor(DayOfWeek.Sunday).Any(e => !string.IsNullOrWhiteSpace(e.Course)))
             days.Add(DayOfWeek.Sunday);
-        }
         return days.ToArray();
     }
 
@@ -143,6 +176,8 @@ public partial class TimetableWindow : Window
         var snapshot = SafeSnapshot();
         var todayOverride = TryGetTodayOverride();
         var today = DateTime.Today.DayOfWeek;
+        var parityEnabled = IsParityEnabled();
+        var page = parityEnabled ? _parityPage : WeekType.All;
 
         for (var row = 0; row < timetable.Periods.Count; row++)
         {
@@ -152,10 +187,11 @@ public partial class TimetableWindow : Window
             for (var i = 0; i < _days.Length; i++)
             {
                 var day = _days[i];
-                var weeklyCourse = timetable.CourseAt(day, period.Index) ?? "";
-                var displayCourse = weeklyCourse;
+                var pageCourse = ResolvePageCourse(timetable, day, period.Index, page, parityEnabled, out var weekSpecific);
+                var displayCourse = pageCourse;
                 var cancelled = false;
                 var replaced = false;
+                var displaySpecific = weekSpecific;
 
                 if (todayOverride is not null && day == today)
                 {
@@ -163,11 +199,13 @@ public partial class TimetableWindow : Window
                     {
                         cancelled = true;
                         displayCourse = "已取消";
+                        displaySpecific = false;
                     }
                     else if (todayOverride.CourseReplacements.TryGetValue(period.Index, out var replacedValue))
                     {
                         replaced = true;
                         displayCourse = string.IsNullOrWhiteSpace(replacedValue) ? "未设置" : replacedValue!;
+                        displaySpecific = false;
                     }
                 }
 
@@ -178,7 +216,9 @@ public partial class TimetableWindow : Window
                              && snapshot.Now.DayOfWeek == day
                              && snapshot.Current.PeriodIndex == period.Index;
 
-                var cell = BuildCourseCell(day, period.Index, displayCourse, cancelled, replaced, highlighted, active);
+                var cell = BuildCourseCell(
+                    day, period.Index, displayCourse, cancelled, replaced, highlighted, active,
+                    parityEnabled && page != WeekType.All, displaySpecific, page);
                 Grid.SetRow(cell, row + 1);
                 Grid.SetColumn(cell, i + 1);
                 WeekHost.Children.Add(cell);
@@ -241,16 +281,18 @@ public partial class TimetableWindow : Window
     }
 
     private Border BuildCourseCell(
-        DayOfWeek day, int periodIndex, string course, bool cancelled, bool replaced, bool highlighted, bool active)
+        DayOfWeek day, int periodIndex, string course, bool cancelled, bool replaced, bool highlighted, bool active,
+        bool parityPage, bool weekSpecific, WeekType page)
     {
         var textBlock = new TextBlock
         {
             Text = string.IsNullOrWhiteSpace(course) ? "—" : course,
-            FontFamily = (FontFamily)FindResource(cancelled || replaced || highlighted ? "Font.Medium" : "Font.Regular"),
+            FontFamily = (FontFamily)FindResource(cancelled || replaced || highlighted || weekSpecific ? "Font.Medium" : "Font.Regular"),
             FontSize = 14,
             Foreground = cancelled ? TextTertiary
                 : replaced ? Warm
                 : highlighted ? Accent
+                : weekSpecific ? (page == WeekType.Odd ? ParityOdd : ParityEven)
                 : string.IsNullOrWhiteSpace(course) ? MakeBrush("#C8D2E0")
                 : TextPrimary,
             TextWrapping = TextWrapping.Wrap,
@@ -260,27 +302,57 @@ public partial class TimetableWindow : Window
         };
         if (cancelled) textBlock.TextDecorations = TextDecorations.Strikethrough;
 
+        var stack = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        stack.Children.Add(textBlock);
+
+        TextBlock? badge = null;
+        if (parityPage)
+        {
+            badge = new TextBlock
+            {
+                Text = page == WeekType.Odd ? "单周专用" : "双周专用",
+                FontSize = 10,
+                Foreground = page == WeekType.Odd ? ParityOdd : ParityEven,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 3, 0, 0),
+                Visibility = weekSpecific ? Visibility.Visible : Visibility.Collapsed
+            };
+            stack.Children.Add(badge);
+        }
+
         var grid = new Grid();
-        grid.Children.Add(textBlock);
+        grid.Children.Add(stack);
 
         var border = new Border
         {
             Background = active ? MakeBrush("#F3FFF8") : Brushes.White,
-            BorderBrush = active ? Success : highlighted ? Accent : Divider,
-            BorderThickness = new Thickness(highlighted || active ? 1.5 : 1),
+            BorderBrush = active ? Success : highlighted ? Accent : weekSpecific ? (page == WeekType.Odd ? ParityOdd : ParityEven) : Divider,
+            BorderThickness = new Thickness(highlighted || active || weekSpecific ? 1.5 : 1),
             CornerRadius = new CornerRadius(8),
             Margin = new Thickness(3),
             Padding = new Thickness(8),
             MinHeight = 54,
             Child = grid,
             Cursor = Cursors.Hand,
-            ToolTip = "点击编辑课程名（回车保存，Esc 取消）"
+            ToolTip = parityPage
+                ? "点击编辑本页课程（回车保存，Esc 取消）；右键可“恢复为通用”"
+                : "点击编辑课程名（回车保存，Esc 取消）"
         };
         border.MouseLeftButtonDown += (_, e) =>
         {
             e.Handled = true;
-            BeginEdit(border, grid, textBlock, day, periodIndex, course);
+            BeginEdit(border, grid, textBlock, day, periodIndex, course, page, stack, badge);
         };
+
+        // v1.4.0：右键菜单（单/双页签可把本格恢复为通用）
+        var menu = new ContextMenu();
+        var restore = new MenuItem { Header = "恢复为通用（删除本页专用）", IsEnabled = parityPage && weekSpecific };
+        restore.Click += (_, _) => RestoreCellToAll(day, periodIndex);
+        var clear = new MenuItem { Header = "清空本格" };
+        clear.Click += (_, _) => ClearCell(day, periodIndex, page);
+        menu.Items.Add(restore);
+        menu.Items.Add(clear);
+        border.ContextMenu = menu;
         return border;
     }
 
@@ -288,7 +360,9 @@ public partial class TimetableWindow : Window
     // 内联编辑课程
     // =========================================================================
 
-    private void BeginEdit(Border cell, Grid grid, TextBlock textBlock, DayOfWeek day, int periodIndex, string course)
+    private void BeginEdit(
+        Border cell, Grid grid, TextBlock textBlock, DayOfWeek day, int periodIndex, string course,
+        WeekType page, StackPanel? stack = null, TextBlock? badge = null)
     {
         CommitEdit();
         if (_editingBox is not null) return; // 上一个提交失败时不继续
@@ -303,10 +377,14 @@ public partial class TimetableWindow : Window
         };
         grid.Children.Add(box);
         textBlock.Visibility = Visibility.Collapsed;
+        if (stack is not null) stack.Visibility = Visibility.Collapsed;
 
         _editingTarget = (day, periodIndex);
         _editingBox = box;
         _editingTextBlock = textBlock;
+        _editingStack = stack;
+        _editingBadge = badge;
+        _editingPage = page;
         _editingOriginal = string.IsNullOrWhiteSpace(course) || course == "已取消" ? "" : course;
         _editingDisplay = textBlock.Text;
 
@@ -343,25 +421,25 @@ public partial class TimetableWindow : Window
 
         var text = (box.Text ?? "").Trim();
         var original = _editingOriginal;
+        var page = _editingPage;
+        var stack = _editingStack;
+        var badge = _editingBadge;
         _committing = true;
         try
         {
             _editingBox = null;
             _editingTarget = null;
             _editingTextBlock = null;
+            _editingStack = null;
+            _editingBadge = null;
             RemoveEditor(box);
-            if (textBlock is not null)
-            {
-                textBlock.Text = text.Length == 0 ? "—" : text;
-                textBlock.Visibility = Visibility.Visible;
-            }
 
             if (text != original)
             {
                 _suppressRefresh = true;
                 try
                 {
-                    _timetable.SetCourse(target.Value.Day, target.Value.PeriodIndex, text);
+                    SaveCell(target.Value.Day, target.Value.PeriodIndex, page, text);
                 }
                 catch (Exception ex)
                 {
@@ -373,6 +451,18 @@ public partial class TimetableWindow : Window
                     _suppressRefresh = false;
                 }
             }
+
+            // 编辑结束后按当前页签规则刷新该格（专用/通用、标记、颜色）
+            if (textBlock is not null)
+            {
+                var enabled = IsParityEnabled();
+                var effectivePage = enabled ? page : WeekType.All;
+                var display = ResolvePageCourse(_timetable.Current, target.Value.Day, target.Value.PeriodIndex,
+                    effectivePage, enabled, out var specific);
+                if (stack is not null) stack.Visibility = Visibility.Visible;
+                textBlock.Text = string.IsNullOrEmpty(display) ? "—" : display;
+                if (badge is not null) badge.Visibility = specific ? Visibility.Visible : Visibility.Collapsed;
+            }
         }
         finally
         {
@@ -380,17 +470,69 @@ public partial class TimetableWindow : Window
         }
     }
 
+    /// <summary>按页签保存：通用页写 All；单/双页写专用（与通用相同或清空则删除专用条目恢复通用）。</summary>
+    private void SaveCell(DayOfWeek day, int periodIndex, WeekType page, string text)
+    {
+        var parityEnabled = IsParityEnabled();
+        var effectivePage = parityEnabled ? page : WeekType.All;
+
+        if (effectivePage == WeekType.All || _concreteTimetable is null)
+        {
+            _timetable.SetCourse(day, periodIndex, text);
+            return;
+        }
+
+        var allCourse = (_timetable.Current.EntryAt(day, periodIndex, WeekType.All)?.Course ?? "").Trim();
+        if (text.Length == 0 || string.Equals(text, allCourse, StringComparison.Ordinal))
+        {
+            _concreteTimetable.RestoreCellToAll(day, periodIndex);
+            return;
+        }
+        _concreteTimetable.SetEntry(day, periodIndex, effectivePage, text);
+    }
+
+    /// <summary>清空某格（当前页签语义）。</summary>
+    private void ClearCell(DayOfWeek day, int periodIndex, WeekType page)
+    {
+        try
+        {
+            SaveCell(day, periodIndex, IsParityEnabled() ? page : WeekType.All, "");
+            RefreshAll();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("清空课程格失败", ex);
+        }
+    }
+
+    /// <summary>某格“恢复为通用”：删除单/双专用条目。</summary>
+    private void RestoreCellToAll(DayOfWeek day, int periodIndex)
+    {
+        try
+        {
+            if (_concreteTimetable?.RestoreCellToAll(day, periodIndex) == true) RefreshAll();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("恢复为通用失败", ex);
+        }
+    }
+
     private void CancelEdit()
     {
         var box = _editingBox;
         var textBlock = _editingTextBlock;
+        var stack = _editingStack;
         _committing = true;
         try
         {
             _editingBox = null;
             _editingTarget = null;
             _editingTextBlock = null;
+            _editingStack = null;
+            _editingBadge = null;
             if (box is not null) RemoveEditor(box);
+            if (stack is not null) stack.Visibility = Visibility.Visible;
             if (textBlock is not null)
             {
                 textBlock.Text = _editingDisplay;
@@ -406,6 +548,157 @@ public partial class TimetableWindow : Window
     private static void RemoveEditor(TextBox box)
     {
         if (box.Parent is Panel panel) panel.Children.Remove(box);
+    }
+
+    // =========================================================================
+    // v1.4.0：单双周页签 / 工具
+    // =========================================================================
+
+    private bool IsParityEnabled()
+    {
+        try { return _weekParity.Enabled; }
+        catch (Exception ex)
+        {
+            Log.Error("读取单双周开关失败", ex);
+            return false;
+        }
+    }
+
+    /// <summary>某页签某格显示的课程（未启用单双周时按 v1.3 逻辑）。</summary>
+    private static string ResolvePageCourse(
+        WeekTimetable timetable, DayOfWeek day, int periodIndex, WeekType page, bool parityEnabled, out bool specific)
+    {
+        specific = false;
+        if (!parityEnabled)
+            return timetable.CourseAt(day, periodIndex) ?? "";
+
+        if (page == WeekType.All)
+            return timetable.EntryAt(day, periodIndex, WeekType.All)?.Course ?? "";
+
+        specific = timetable.EntryAt(day, periodIndex, page) is not null;
+        return TimetableParityEditor.DisplayCourse(timetable, day, periodIndex, page);
+    }
+
+    private void UpdateParityBar(WeekTimetable timetable)
+    {
+        var enabled = IsParityEnabled();
+        ParityBar.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!enabled)
+        {
+            _parityPage = WeekType.All;
+            WeekParityInfo.Text = "";
+            return;
+        }
+
+        // 页签按钮状态
+        BtnPageAll.Style = (Style)FindResource(_parityPage == WeekType.All ? "Button.Form" : "Button.FormGhost");
+        BtnPageOdd.Style = (Style)FindResource(_parityPage == WeekType.Odd ? "Button.Form" : "Button.FormGhost");
+        BtnPageEven.Style = (Style)FindResource(_parityPage == WeekType.Even ? "Button.Form" : "Button.FormGhost");
+
+        var currentPage = _parityPage;
+        BtnCopyAll.IsEnabled = currentPage != WeekType.All;
+        BtnClearPage.IsEnabled = currentPage != WeekType.All;
+        BtnCopyAll.Content = currentPage == WeekType.Odd ? "把通用复制到单周" : currentPage == WeekType.Even ? "把通用复制到双周" : "把通用复制到本页";
+        BtnClearPage.Content = currentPage == WeekType.Odd ? "清空单周专用" : currentPage == WeekType.Even ? "清空双周专用" : "清空本页专用";
+        BtnRestoreAll.IsEnabled = true;
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var weekNo = _weekParity.GetWeekNumber(today);
+        var parity = _weekParity.CurrentParity;
+        var parityText = parity == WeekParity.Odd ? "单周" : "双周";
+        var overrideText = _weekParity.IsCurrentWeekOverridden ? "（手动覆盖）" : "";
+        var weekText = weekNo > 0
+            ? $"本周：第 {weekNo} 周 · {parityText}{overrideText}"
+            : $"开学前（第 {weekNo} 周）· {parityText}";
+        var (allCount, oddCount, evenCount) = TimetableParityEditor.CountByWeekType(timetable);
+        ParityHint.Text = $"{weekText} · 当前页：{PageName(_parityPage)} · 通用 {allCount} / 单周 {oddCount} / 双周 {evenCount}";
+        ParityHint.Foreground = currentPage == WeekType.All ? TextSecondary
+            : currentPage == WeekType.Odd ? ParityOdd : ParityEven;
+
+        // 同格重复检测（数据修复在服务层，这里只提示；按 星期+节次+周类型 判重）
+        var duplicates = timetable.Days
+            .SelectMany(kv => kv.Value.Select(entry => (Day: kv.Key, Entry: entry)))
+            .GroupBy(x => (x.Day, x.Entry.PeriodIndex, x.Entry.Weeks))
+            .Count(g => g.Count() > 1);
+        if (duplicates > 0)
+            ParityHint.Text += $" · ⚠ 检测到 {duplicates} 处重复条目（已按最后一条显示，可用“恢复为通用”清理）";
+
+        WeekParityInfo.Text = weekText;
+        WeekParityInfo.Visibility = Visibility.Visible;
+    }
+
+    private static string PageName(WeekType page) => page switch
+    {
+        WeekType.Odd => "单周",
+        WeekType.Even => "双周",
+        _ => "通用"
+    };
+
+    private void OnParityPageAllClick(object sender, RoutedEventArgs e) => SwitchParityPage(WeekType.All);
+
+    private void OnParityPageOddClick(object sender, RoutedEventArgs e) => SwitchParityPage(WeekType.Odd);
+
+    private void OnParityPageEvenClick(object sender, RoutedEventArgs e) => SwitchParityPage(WeekType.Even);
+
+    private void SwitchParityPage(WeekType page)
+    {
+        if (_parityPage == page) return;
+        CommitEdit();
+        _parityPage = page;
+        RefreshAll();
+    }
+
+    private void OnCopyAllToPageClick(object sender, RoutedEventArgs e)
+    {
+        if (_parityPage == WeekType.All) return;
+        try
+        {
+            var count = _concreteTimetable?.CopyAllTo(_parityPage) ?? 0;
+            RefreshAll();
+            ParityHint.Text = $"已把通用课程复制到{PageName(_parityPage)}：{count} 格";
+            ParityHint.Foreground = Success;
+            Log.Info($"单双周：复制通用到{PageName(_parityPage)}，{count} 格");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("复制通用课程失败", ex);
+        }
+    }
+
+    private void OnClearPageClick(object sender, RoutedEventArgs e)
+    {
+        if (_parityPage == WeekType.All) return;
+        try
+        {
+            var removed = _concreteTimetable?.ClearWeek(_parityPage) ?? 0;
+            RefreshAll();
+            ParityHint.Text = $"已清空{PageName(_parityPage)}专用课程：{removed} 格（这些格子恢复显示通用课程）";
+            ParityHint.Foreground = Success;
+            Log.Info($"单双周：清空{PageName(_parityPage)}专用条目 {removed} 格");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("清空单双周专用项失败", ex);
+        }
+    }
+
+    private void OnRestoreAllClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var removed = _concreteTimetable?.RestoreAllToAll() ?? 0;
+            RefreshAll();
+            ParityHint.Text = removed > 0
+                ? $"已恢复为通用：删除单/双专用条目 {removed} 格"
+                : "当前没有单/双专用条目，全部使用通用课程";
+            ParityHint.Foreground = Success;
+            Log.Info($"单双周：恢复为通用，删除专用条目 {removed} 格");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("恢复为通用失败", ex);
+        }
     }
 
     // =========================================================================
@@ -428,9 +721,18 @@ public partial class TimetableWindow : Window
             Margin = new Thickness(0, 0, 0, 12)
         };
         var headerStack = new StackPanel();
+        var paritySuffix = "";
+        if (IsParityEnabled())
+        {
+            var weekNo = _weekParity.GetWeekNumber(DateOnly.FromDateTime(now));
+            var parityText = _weekParity.CurrentParity == WeekParity.Odd ? "单周" : "双周";
+            paritySuffix = weekNo > 0
+                ? $"  |  第 {weekNo} 周 · {parityText}{(_weekParity.IsCurrentWeekOverridden ? "（手动覆盖）" : "")}"
+                : $"  |  开学前 · {parityText}";
+        }
         headerStack.Children.Add(new TextBlock
         {
-            Text = $"今天 · {DayName(now.DayOfWeek)}  {now:MM 月 dd 日}",
+            Text = $"今天 · {DayName(now.DayOfWeek)}  {now:MM 月 dd 日}{paritySuffix}",
             FontFamily = (FontFamily)FindResource("Font.Bold"),
             FontWeight = FontWeights.Bold,
             FontSize = 19,

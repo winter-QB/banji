@@ -137,6 +137,29 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- 本周轮值（v1.4.0） -->
+                    <Border x:Name="DutyCard" Style="{StaticResource DashCard}" Cursor="Hand"
+                            MouseLeftButtonUp="OnDutyCardClick">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,8">
+                                <TextBlock Text="本周轮值" Style="{StaticResource CardTitle}" />
+                                <TextBlock x:Name="DutyNextText" DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                           VerticalAlignment="Center" FontFamily="{StaticResource Font.Regular}"
+                                           FontSize="11.5" Foreground="{StaticResource Brush.TextTertiary}" />
+                            </DockPanel>
+                            <TextBlock x:Name="DutyGroupText" Text="—" FontFamily="{StaticResource Font.Bold}"
+                                       FontWeight="Bold" FontSize="22" Foreground="{StaticResource Brush.Brand}"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="DutyModeText" Text="" FontFamily="{StaticResource Font.Regular}"
+                                       FontSize="11.5" Foreground="{StaticResource Brush.TextTertiary}"
+                                       Margin="0,2,0,6" />
+                            <StackPanel x:Name="DutyTasksPanel" />
+                            <TextBlock x:Name="DutyHintText" Text="点击查看 / 配置值日与轮值"
+                                       FontFamily="{StaticResource Font.Regular}" FontSize="11.5"
+                                       Foreground="{StaticResource Brush.TextTertiary}" Margin="0,8,0,0" />
+                        </StackPanel>
+                    </Border>
+
                     <!-- 今日课表 -->
                     <Border Style="{StaticResource DashCard}">
                         <StackPanel>

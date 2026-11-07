@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using Banji.Controls.Toolbar;
 using Banji.Core.Boot;
@@ -53,6 +54,7 @@ public partial class DashboardWindow : Window
         svc.Rosters.Changed += OnSimpleChanged;
         svc.Settings.Changed += OnSimpleChanged;
         svc.Growth.Changed += OnSimpleChanged;
+        svc.Duty.Changed += OnSimpleChanged;
     }
 
     private void OnClosed(object? sender, EventArgs e)
@@ -67,6 +69,7 @@ public partial class DashboardWindow : Window
             svc.Rosters.Changed -= OnSimpleChanged;
             svc.Settings.Changed -= OnSimpleChanged;
             svc.Growth.Changed -= OnSimpleChanged;
+            svc.Duty.Changed -= OnSimpleChanged;
         }
         catch (Exception ex)
         {
@@ -98,6 +101,7 @@ public partial class DashboardWindow : Window
         UpdatePointsRanking();
         UpdateGrowthStats();
         UpdateCountdownCard();
+        UpdateDutyCard();
     }
 
     private void UpdateClock()
@@ -421,6 +425,101 @@ public partial class DashboardWindow : Window
         }
     }
 
+    // =========================================================================
+    // 本周轮值（v1.4.0）
+    // =========================================================================
+
+    private void UpdateDutyCard()
+    {
+        if (!AppServices.IsInitialized) return;
+        try
+        {
+            var duty = AppServices.Current.Duty;
+            var today = DateOnly.FromDateTime(DateTime.Now);
+
+            if (duty.NeedsFirstTimeSetup)
+            {
+                DutyGroupText.Text = "还没有配置值日轮值";
+                DutyGroupText.Foreground = BrushRes("Brush.TextTertiary", Colors.Gray);
+                DutyModeText.Text = "首次配置需要设置开学第一周（必填，不能跳过）";
+                DutyTasksPanel.Children.Clear();
+                DutyNextText.Text = "";
+                DutyHintText.Text = "点击完成首次配置 →";
+                return;
+            }
+
+            var schedule = duty.GetSchedule(today);
+            var mode = duty.Config.Mode == DutyMode.Weekly ? "值周制 · 每周换组" : "值日制 · 每天换组";
+            DutyGroupText.Text = schedule.IsPaused
+                ? "本周暂停"
+                : string.IsNullOrWhiteSpace(schedule.GroupName) ? "未配置" : schedule.GroupName!;
+            DutyGroupText.Foreground = schedule.IsPaused
+                ? BrushRes("Brush.Warning", Colors.Orange)
+                : BrushRes("Brush.Brand", Colors.RoyalBlue);
+            DutyModeText.Text = mode + (schedule.Tasks.Count > 0 ? $" · 今日 {schedule.Tasks.Count} 项任务" : "");
+
+            DutyTasksPanel.Children.Clear();
+            foreach (var task in schedule.Tasks.OrderByDescending(t => t.IsTopTask).Take(4))
+            {
+                var line = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
+                var name = new TextBlock
+                {
+                    Text = (task.IsTopTask ? "★ " : "") + task.TaskName,
+                    Width = 110,
+                    FontFamily = FontRes("Font.Regular", "Segoe UI"),
+                    FontSize = 12,
+                    Foreground = BrushRes("Brush.TextSecondary", Colors.Gray),
+                    TextTrimming = TextTrimming.CharacterEllipsis
+                };
+                var members = new TextBlock
+                {
+                    Text = task.MembersText,
+                    FontFamily = FontRes("Font.Regular", "Segoe UI"),
+                    FontSize = 12,
+                    Foreground = BrushRes("Brush.TextPrimary", Colors.Black),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                line.Children.Add(name);
+                line.Children.Add(members);
+                DutyTasksPanel.Children.Add(line);
+            }
+            if (schedule.Tasks.Count == 0)
+                DutyTasksPanel.Children.Add(new TextBlock
+                {
+                    Text = "暂无岗位安排（可在值日窗口里配置）",
+                    FontFamily = FontRes("Font.Regular", "Segoe UI"),
+                    FontSize = 11.5,
+                    Foreground = BrushRes("Brush.TextTertiary", Colors.Gray)
+                });
+
+            // 下周预告
+            var nextMonday = DutyPresetFactory.MondayOf(today).AddDays(7);
+            var nextText = "";
+            try
+            {
+                var preview = duty.GetRotationPreview(today, 2);
+                var next = preview?.FirstOrDefault(w => w.WeekMonday == nextMonday);
+                if (next is not null)
+                {
+                    nextText = next.Paused
+                        ? "下周：暂停"
+                        : $"下周：{(string.IsNullOrWhiteSpace(next.GroupName) ? "未配置" : next.GroupName)}";
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("仪表盘读取下周轮换失败", ex);
+            }
+            DutyNextText.Text = nextText;
+            DutyHintText.Text = "点击打开值日与轮值 →";
+        }
+        catch (Exception ex)
+        {
+            Log.Error("仪表盘刷新本周轮值失败", ex);
+        }
+    }
+
     private void UpdateCountdownCard()
     {
         if (!AppServices.IsInitialized) return;
@@ -551,6 +650,9 @@ public partial class DashboardWindow : Window
 
     private void OnRosterClick(object sender, RoutedEventArgs e) => Guard("打开花名册管理",
         () => AppServices.Current.ShowRosterManager());
+
+    private void OnDutyCardClick(object sender, MouseButtonEventArgs e) => Guard("打开值日与轮值",
+        () => AppServices.Current.ShowDutyWindow());
 
     private void OnGroupingClick(object sender, RoutedEventArgs e) => Guard("打开随机分组",
         () => AppServices.Current.ShowGroupingWindow());

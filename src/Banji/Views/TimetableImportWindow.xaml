@@ -58,6 +58,8 @@
                 <TextBlock x:Name="FormatText" FontFamily="{StaticResource Font.Medium}" FontSize="13"
                            Foreground="#1F2329" TextWrapping="Wrap"
                            Text="选择文件后，这里会显示自动识别的布局与节次信息。" />
+                <TextBlock x:Name="WeekStatsText" FontSize="12" Foreground="#8A5A00"
+                           TextWrapping="Wrap" Margin="0,4,0,0" Visibility="Collapsed" />
                 <StackPanel x:Name="WarningsHost" Margin="0,6,0,0" />
             </StackPanel>
         </Border>

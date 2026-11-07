@@ -21,6 +21,9 @@
       - 测试项目退出码非 0 时立即中止。
       - v1.2.0 起主程序内置 LLamaSharp CPU 推理库（llama.dll / ggml*.dll 等原生库），
         单文件发布体积约 209MB；原生库随 IncludeAllContentForSelfExtract 自解压，安装包相应增大约 22MB。
+      - v1.4.0 起额外随包附带新版 VC++ 运行库（msvcp140.dll 14.4x+，LLamaSharp 0.30 的硬性要求）：
+        脚本会从 Edge / OneDrive / Office 等目录自动查找 x64 新版 DLL 并复制到 Banji.exe 同目录
+        （便携版/安装版都会带上）；找不到时只告警并继续构建。
       - 机器上若有无法结束的旧实例（其它权限上下文），脚本会跳过它继续构建（不阻塞打包）。
 #>
 [CmdletBinding()]
@@ -107,6 +110,94 @@ function Get-FileSizeOrZero([string]$Path) {
     if (Test-Path -LiteralPath $Path) { return (Get-Item -LiteralPath $Path).Length }
     return 0
 }
+
+# =============================================================================
+# VC++ 运行库（v1.4.0 新增）
+# LLamaSharp 0.30 的原生库要求 msvcp140 >= 14.40；Windows 11 自带的仍是 14.26，
+# 在干净机器上会导致 AI 模型加载时在 ggml 处崩溃（不是友好报错）。
+# 这里从 Edge / OneDrive / Office 等自带新版运行库的程序目录里找一个 14.40+ 的 x64
+# msvcp140.dll（以及同目录的 msvcp140_*.dll 伴生文件），随程序/便携版/安装包一起分发。
+# 也可以手动把新版 DLL 放到 build\vcpp-runtime\，或用环境变量 BANJI_VCPP_DIR 指定目录。
+# =============================================================================
+function Test-IsX64Pe([string]$Path) {
+    try {
+        $fs = [System.IO.File]::OpenRead($Path)
+        try {
+            $br = New-Object System.IO.BinaryReader($fs)
+            $fs.Position = 0x3C
+            $peOffset = $br.ReadInt32()
+            $fs.Position = $peOffset + 4
+            $machine = $br.ReadUInt16()
+            return ($machine -eq 0x8664)
+        } finally { $fs.Dispose() }
+    } catch { return $false }
+}
+
+function Get-DllVersionOrNull([string]$Path) {
+    try {
+        $raw = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($Path).FileVersion
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+        return [Version]($raw.Split(' ')[0])
+    } catch { return $null }
+}
+
+function Find-VCRuntimeSource {
+    $minVersion = [Version]"14.40.0.0"
+    $candidates = New-Object System.Collections.ArrayList
+    if ($env:BANJI_VCPP_DIR) { [void]$candidates.Add($env:BANJI_VCPP_DIR) }
+    [void]$candidates.Add((Join-Path $BuildDir "vcpp-runtime"))
+
+    $programRoots = @(${env:ProgramFiles(x86)}, $env:ProgramFiles) | Where-Object { $_ }
+    foreach ($base in $programRoots) {
+        $edgeRoot = Join-Path $base "Microsoft\Edge\Application"
+        if (Test-Path -LiteralPath $edgeRoot) {
+            Get-ChildItem -LiteralPath $edgeRoot -Directory -ErrorAction SilentlyContinue |
+                ForEach-Object { [void]$candidates.Add($_.FullName) }
+        }
+        $oneDriveRoot = Join-Path $base "Microsoft OneDrive"
+        if (Test-Path -LiteralPath $oneDriveRoot) {
+            Get-ChildItem -LiteralPath $oneDriveRoot -Directory -ErrorAction SilentlyContinue |
+                ForEach-Object { [void]$candidates.Add($_.FullName) }
+        }
+    }
+    if ($env:ProgramFiles) {
+        foreach ($officeDir in @(
+            (Join-Path $env:ProgramFiles "Microsoft Office\root\Client"),
+            (Join-Path $env:ProgramFiles "Microsoft Office\root\Office16"),
+            (Join-Path $env:ProgramFiles "Microsoft Office\root\vfs\ProgramFilesCommonX64\Microsoft Shared\OFFICE16\AI")
+        )) { [void]$candidates.Add($officeDir) }
+    }
+
+    $best = $null
+    foreach ($dir in $candidates) {
+        if (-not $dir -or -not (Test-Path -LiteralPath $dir)) { continue }
+        $dll = Join-Path $dir "msvcp140.dll"
+        if (-not (Test-Path -LiteralPath $dll)) { continue }
+        if (-not (Test-IsX64Pe $dll)) { continue }
+        $ver = Get-DllVersionOrNull $dll
+        if ($null -eq $ver -or $ver -lt $minVersion) { continue }
+        if ($null -eq $best -or $ver -gt $best.Version) {
+            $best = [pscustomobject]@{ Dir = $dir; Path = $dll; Version = $ver }
+        }
+    }
+    return $best
+}
+
+function Copy-VCRuntimeTo([string]$DestinationDir, $Source) {
+    if ($null -eq $Source) { return @() }
+    $copied = New-Object System.Collections.ArrayList
+    foreach ($f in @(Get-ChildItem -LiteralPath $Source.Dir -Filter "msvcp140*.dll" -File -ErrorAction SilentlyContinue)) {
+        $target = Join-Path $DestinationDir $f.Name
+        Copy-Item -LiteralPath $f.FullName -Destination $target -Force
+        [void]$copied.Add($f.Name)
+    }
+    if (-not (Test-Path -LiteralPath (Join-Path $DestinationDir "msvcp140.dll"))) {
+        Copy-Item -LiteralPath $Source.Path -Destination (Join-Path $DestinationDir "msvcp140.dll") -Force
+        [void]$copied.Add("msvcp140.dll")
+    }
+    return @($copied)
+}
+
 
 function Invoke-Dotnet([string[]]$Arguments, [string]$What) {
     Write-Info ("> dotnet " + ($Arguments -join " "))
@@ -240,6 +331,29 @@ $publishFiles = @(Get-ChildItem -LiteralPath $PublishDir -Recurse -File)
 Write-Info ("发布目录共 {0} 个文件，{1}" -f $publishFiles.Count, (Format-Size (($publishFiles | Measure-Object Length -Sum).Sum)))
 
 # =============================================================================
+# 6.5 随包附带 VC++ 运行库（v1.4.0：LLamaSharp 0.30 要求 msvcp140 >= 14.40）
+# =============================================================================
+Write-Section "随包附带 VC++ 运行库（msvcp140 >= 14.40，供端侧 AI 使用）"
+$script:VCRuntimeLabel = "未找到（构建继续，干净机器上 AI 可能无法加载）"
+$vcRuntime = Find-VCRuntimeSource
+if ($null -eq $vcRuntime) {
+    Write-Warn "未找到符合要求的 x64 msvcp140.dll（14.40+）。"
+    Write-Warn "可把新版 msvcp140.dll 放到 build\vcpp-runtime\，或设置环境变量 BANJI_VCPP_DIR 后重跑；本次构建继续。"
+} else {
+    $copied = Copy-VCRuntimeTo $PublishDir $vcRuntime
+    $vcTarget = Join-Path $PublishDir "msvcp140.dll"
+    if (Test-Path -LiteralPath $vcTarget) {
+        $vcCopiedVersion = Get-DllVersionOrNull $vcTarget
+        Write-Ok ("已随包附带 VC++ 运行库：msvcp140 {0} 等 {1} 个文件" -f $vcCopiedVersion, $copied.Count)
+        Write-Info ("来源：{0}" -f $vcRuntime.Dir)
+        $script:VCRuntimeLabel = "msvcp140 $vcCopiedVersion（来源：$($vcRuntime.Dir)）"
+    } else {
+        Write-Warn "拷贝 msvcp140.dll 失败，构建继续（干净机器上 AI 可能无法加载）。"
+        $script:VCRuntimeLabel = "拷贝失败（构建继续）"
+    }
+}
+
+# =============================================================================
 # 7. 组装安装负载
 # =============================================================================
 Write-Section "组装安装负载（程序 + 字体 + README + 字体许可证）"
@@ -368,6 +482,12 @@ if ($payloadSize -lt 20MB) {
 if (-not $SkipPortable -and -not (Test-Path -LiteralPath $DistPortable)) {
     Fail "便携版 zip 没有生成成功。"
 }
+$vcPublishDll = Join-Path $PublishDir "msvcp140.dll"
+if (Test-Path -LiteralPath $vcPublishDll) {
+    Write-Ok ("VC++ 运行库已随包：msvcp140 {0}" -f (Get-DllVersionOrNull $vcPublishDll))
+} else {
+    Write-Warn "发布目录没有 msvcp140.dll：干净机器（Windows 11 自带 14.26）上 AI 模型加载可能失败。"
+}
 Write-Ok "产物校验通过"
 
 if ($SmokeTest) {
@@ -402,6 +522,7 @@ $reportLines += "安装负载 payload.zip：$(Format-Size $payloadSize)"
 $reportLines += "主程序 Banji.exe（自包含单文件）：$(Format-Size $mainExeSize)"
 $reportLines += "版本：$appVersion"
 $reportLines += "字体：HarmonyOS Sans SC Thin/Light/Regular/Medium/Bold/Black（6 个）"
+$reportLines += "VC++ 运行库（随包）：$script:VCRuntimeLabel"
 $reportLines += "测试：$(if ($SkipTests) { '已跳过' } else { '通过' })"
 $reportLines += "安装器端到端自测：$(if ($SmokeTest) { '通过' } else { '未运行（可用 -SmokeTest）' })"
 Set-Content -LiteralPath $BuildReport -Value $reportLines -Encoding UTF8

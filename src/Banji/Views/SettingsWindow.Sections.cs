@@ -79,7 +79,8 @@ public partial class SettingsWindow
                     "觉得班机上下课时间总比学校铃声快/慢几秒？点“我听到铃声了”，向导会算出需要写入的铃声误差（±60 秒内），自动对齐学校铃声。",
                     ButtonRow(ActionButton("打开铃声校准向导",
                         () => AppServices.Current.ShowRingCalibrationWindow(), primary: true)))
-            ));
+            ),
+            BuildWeekParityCard(s));
     }
 
     private static string FormatBellOffset(double seconds)
@@ -1287,4 +1288,432 @@ public partial class SettingsWindow
         if (bytes >= 1024) return $"{bytes / 1024.0:0.0} KB";
         return $"{bytes} 字节";
     }
+
+    // =========================================================================
+    // 单双周课表（v1.4.0，课堂分区卡片）
+    // =========================================================================
+
+    private FrameworkElement BuildWeekParityCard(AppSettings s)
+    {
+        var previewText = new TextBlock
+        {
+            FontFamily = FontMedium,
+            FontSize = 13.5,
+            Foreground = BrandBrush,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 2, 0, 0)
+        };
+        var anchorHint = new TextBlock
+        {
+            FontFamily = FontRegular,
+            FontSize = 11.5,
+            Foreground = TextTertiary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+
+        void RefreshPreview()
+        {
+            try
+            {
+                var current = AppServices.Current.Settings.Current;
+                var parityService = AppServices.Current.WeekParity;
+                var today = DateOnly.FromDateTime(DateTime.Now);
+                var number = parityService.GetWeekNumber(today);
+                var parity = parityService.CurrentParity;
+                var monday = DutyPresetFactory.MondayOf(today);
+                var overridden = current.WeekParityOverride != WeekParityOverrideMode.Auto
+                                 && current.WeekParityOverrideWeekStart == monday;
+                previewText.Text = current.EnableWeekParity
+                    ? $"本周预览：{(number > 0 ? $"第 {number} 周" : number == 0 ? "开学前" : "锚点之前")} · " +
+                      $"{(parity == WeekParity.Odd ? "单周" : "双周")}" +
+                      (overridden ? "（手动覆盖，下周自动恢复）" : "（自动推算）")
+                    : "单双周未启用：课表按“通用”内容显示，行为与 v1.3 一致。";
+                previewText.Foreground = current.EnableWeekParity ? BrandBrush : TextTertiary;
+
+                var anchor = parityService.AnchorMonday;
+                anchorHint.Text = anchor is null
+                    ? "锚点周一：未设置 —— 请先在「值日与轮值」分区设置开学第一周（会自动作为锚点）。"
+                    : $"锚点周一：{anchor:yyyy-MM-dd}（该周为第 1 周）" +
+                      (current.WeekParityAnchorDate is null ? " · 跟随开学第一周" : " · 自定义锚点");
+                anchorHint.Foreground = anchor is null ? AccentBrush : TextTertiary;
+            }
+            catch (Exception ex)
+            {
+                Log.Error("刷新单双周预览失败", ex);
+            }
+        }
+
+        // 启用开关
+        var enableToggle = Toggle(s.EnableWeekParity, v =>
+        {
+            Settings.Update(x => x.EnableWeekParity = v);
+            AppServices.Current.WeekParity.Refresh();
+            RebuildSection("class");
+        });
+
+        // 锚点周
+        var anchorDate = s.WeekParityAnchorDate ?? s.SemesterFirstWeekMonday;
+        var datePicker = new DatePicker
+        {
+            SelectedDate = anchorDate?.ToDateTime(TimeOnly.MinValue),
+            Width = 190,
+            FontFamily = FontRegular,
+            FontSize = 13,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        datePicker.SelectedDateChanged += (_, _) =>
+        {
+            if (datePicker.SelectedDate is not { } date) return;
+            var monday = DutyPresetFactory.MondayOf(DateOnly.FromDateTime(date));
+            Settings.Update(x => x.WeekParityAnchorDate = monday);
+            AppServices.Current.WeekParity.Refresh();
+            RefreshPreview();
+        };
+        var thisWeekButton = new Button
+        {
+            Content = "以本周为第 1 周",
+            Style = StyleRes("SettingGhostButton"),
+            Margin = new Thickness(10, 0, 8, 0)
+        };
+        thisWeekButton.Click += (_, _) => Guard("设置单双周锚点", () =>
+        {
+            var monday = DutyPresetFactory.MondayOf(DateOnly.FromDateTime(DateTime.Now));
+            Settings.Update(x =>
+            {
+                x.EnableWeekParity = true;
+                x.WeekParityAnchorDate = monday;
+                x.FirstWeekIsOdd = true;
+                x.SemesterFirstWeekMonday ??= monday;
+            });
+            AppServices.Current.WeekParity.Refresh();
+            RebuildSection("class");
+        });
+        var followSemesterButton = new Button
+        {
+            Content = "跟随开学第一周",
+            Style = StyleRes("SettingGhostButton")
+        };
+        followSemesterButton.Click += (_, _) => Guard("恢复默认单双周锚点", () =>
+        {
+            Settings.Update(x => x.WeekParityAnchorDate = null);
+            AppServices.Current.WeekParity.Refresh();
+            RebuildSection("class");
+        });
+        var anchorPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        anchorPanel.Children.Add(datePicker);
+        anchorPanel.Children.Add(thisWeekButton);
+        anchorPanel.Children.Add(followSemesterButton);
+        var anchorBox = new StackPanel();
+        anchorBox.Children.Add(anchorPanel);
+        anchorBox.Children.Add(anchorHint);
+
+        // 该周是单周/双周
+        var firstWeekSeg = Segmented(new[]
+        {
+            ("单周", true), ("双周", false)
+        }, s.FirstWeekIsOdd, v =>
+        {
+            Settings.Update(x => x.FirstWeekIsOdd = v);
+            AppServices.Current.WeekParity.Refresh();
+            RefreshPreview();
+        });
+
+        // 本周手动覆盖
+        var overrideSeg = Segmented(new[]
+        {
+            ("自动", WeekParityOverrideMode.Auto),
+            ("单周", WeekParityOverrideMode.Odd),
+            ("双周", WeekParityOverrideMode.Even)
+        }, s.WeekParityOverride, mode =>
+        {
+            Settings.Update(x =>
+            {
+                if (mode == WeekParityOverrideMode.Auto)
+                {
+                    x.WeekParityOverride = WeekParityOverrideMode.Auto;
+                    x.WeekParityOverrideWeekStart = null;
+                }
+                else
+                {
+                    x.WeekParityOverride = mode;
+                    x.WeekParityOverrideWeekStart = DutyPresetFactory.MondayOf(DateOnly.FromDateTime(DateTime.Now));
+                }
+            });
+            AppServices.Current.WeekParity.Refresh();
+            RebuildSection("class");
+        });
+
+        var refreshButton = new Button
+        {
+            Content = "刷新预览",
+            Style = StyleRes("SettingGhostButton"),
+            Margin = new Thickness(10, 0, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Left
+        };
+        refreshButton.Click += (_, _) =>
+        {
+            AppServices.Current.WeekParity.Refresh();
+            RefreshPreview();
+        };
+
+        var previewContent = new StackPanel();
+        previewContent.Children.Add(previewText);
+        previewContent.Children.Add(refreshButton);
+
+        RefreshPreview();
+
+        return Card(
+            SectionCardTitle("单双周课表"),
+            Row("启用单双周课表", "开启后同一张课表可按单周/双周使用不同安排；关闭时行为与 v1.3 完全一致。",
+                enableToggle),
+            Divider(),
+            Row("锚点周（第 1 周）", "单双周推算起点，默认使用“开学第一周”。可自选任意一周（自动对齐到周一）。",
+                anchorBox),
+            Divider(),
+            Row("该周是", "锚点周默认是单周（推荐）；如学校以双周开学可改。", firstWeekSeg),
+            Divider(),
+            Row("宠物显示周次", "宠物标题行显示“第 X 周 · 单/双周”。",
+                Toggle(s.ShowWeekNumberOnPet, v => Settings.Update(x => x.ShowWeekNumberOnPet = v))),
+            Divider(),
+            Row("气泡带单双周", "上课/下课气泡文案附带“（单周/双周）”后缀（默认关）。",
+                Toggle(s.NoticeIncludeWeekParity, v => Settings.Update(x => x.NoticeIncludeWeekParity = v))),
+            Divider(),
+            Row("本周手动覆盖", "只影响本周（调休/考试周用），下周自动恢复“自动”。",
+                overrideSeg),
+            Divider(),
+            FullRow("本周预览", "推算结果与锚点信息；任何修改都会立即刷新。", previewContent),
+            FullRow("提示", null, new TextBlock
+            {
+                Text = "• 关闭单双周后，单周/双周专用课表条目仍会保存在文件里，重新开启即可恢复。\n" +
+                       "• 临时换课（某一天的覆盖）优先级高于单双周。\n" +
+                       "• 锚点与值周共用“开学第一周”：在「值日与轮值」分区可修改。",
+                FontFamily = FontRegular,
+                FontSize = 11.5,
+                Foreground = TextTertiary,
+                TextWrapping = TextWrapping.Wrap,
+                LineHeight = 20
+            }));
+    }
+
+    // =========================================================================
+    // 值日与轮值（v1.4.0）
+    // =========================================================================
+
+    private FrameworkElement BuildDutySection()
+    {
+        var s = Settings.Current;
+        var duty = AppServices.Current.Duty;
+        var cfg = duty.Config;
+
+        // 开学第一周（与单双周共用）
+        var firstWeekHint = new TextBlock
+        {
+            FontFamily = FontRegular,
+            FontSize = 11.5,
+            Foreground = TextTertiary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 4, 0, 0)
+        };
+        var datePicker = new DatePicker
+        {
+            SelectedDate = s.SemesterFirstWeekMonday?.ToDateTime(TimeOnly.MinValue),
+            Width = 190,
+            FontFamily = FontRegular,
+            FontSize = 13,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        void RefreshFirstWeekHint()
+        {
+            var value = Settings.Current.SemesterFirstWeekMonday;
+            firstWeekHint.Text = value is null
+                ? "⚠ 尚未设置开学第一周（首次配置必填）：打开值日窗口会强制弹出配置向导。"
+                : $"当前：{value:yyyy-MM-dd}（周一）。值周轮换从此周（第 1 周第 1 组）开始，并作为单双周锚点。";
+            firstWeekHint.Foreground = value is null ? AccentBrush : TextTertiary;
+        }
+        datePicker.SelectedDateChanged += (_, _) =>
+        {
+            if (datePicker.SelectedDate is not { } date) return;
+            var monday = DutyPresetFactory.MondayOf(DateOnly.FromDateTime(date));
+            Settings.Update(x => x.SemesterFirstWeekMonday = monday);
+            AppServices.Current.WeekParity.Refresh();
+            RefreshFirstWeekHint();
+        };
+        var thisMondayButton = new Button
+        {
+            Content = "以本周一为开学第一周",
+            Style = StyleRes("SettingGhostButton"),
+            Margin = new Thickness(10, 0, 0, 0)
+        };
+        thisMondayButton.Click += (_, _) => Guard("设置开学第一周", () =>
+        {
+            var monday = DutyPresetFactory.MondayOf(DateOnly.FromDateTime(DateTime.Now));
+            Settings.Update(x => x.SemesterFirstWeekMonday = monday);
+            AppServices.Current.WeekParity.Refresh();
+            RebuildSection("duty");
+        });
+        var firstWeekPanel = new StackPanel();
+        var firstWeekRow = new StackPanel { Orientation = Orientation.Horizontal };
+        firstWeekRow.Children.Add(datePicker);
+        firstWeekRow.Children.Add(thisMondayButton);
+        firstWeekPanel.Children.Add(firstWeekRow);
+        firstWeekPanel.Children.Add(firstWeekHint);
+        RefreshFirstWeekHint();
+
+        // 黑板类关键词
+        var keywordsBox = new TextBox
+        {
+            Text = string.Join("，", cfg.Display.TopTaskKeywords.Where(k => !string.IsNullOrWhiteSpace(k))),
+            Width = 300,
+            Style = StyleRes("Input.TextBox"),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            ToolTip = "岗位名包含这些关键词时置顶（逗号 / 顿号分隔）"
+        };
+        void CommitKeywords()
+        {
+            var raw = keywordsBox.Text ?? "";
+            var keywords = raw
+                .Split(new[] { '，', ',', '、', ';', '；', ' ' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(k => k.Trim())
+                .Where(k => k.Length > 0)
+                .Distinct()
+                .ToList();
+            if (keywords.Count == 0) keywords.Add("擦黑板");
+            keywordsBox.Text = string.Join("，", keywords);
+            UpdateDutyConfig(c => c.Display.TopTaskKeywords = keywords);
+        }
+        keywordsBox.LostFocus += (_, _) => Guard("修改黑板类关键词", CommitKeywords);
+        keywordsBox.KeyDown += (_, e) =>
+        {
+            if (e.Key != Key.Enter) return;
+            CommitKeywords();
+            e.Handled = true;
+        };
+        var keywordPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        keywordPanel.Children.Add(keywordsBox);
+        var keywordHint = new TextBlock
+        {
+            Text = "如：擦黑板，黑板，讲台",
+            FontFamily = FontRegular,
+            FontSize = 11.5,
+            Foreground = TextTertiary,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(10, 0, 0, 0)
+        };
+        keywordPanel.Children.Add(keywordHint);
+
+        var setupBanner = new StackPanel();
+        if (duty.NeedsFirstTimeSetup)
+        {
+            setupBanner.Children.Add(new TextBlock
+            {
+                Text = "⚠ 首次配置尚未完成：打开值日与轮值窗口会强制弹出配置向导（开学第一周为必填项，不能跳过）。",
+                FontFamily = FontMedium,
+                FontSize = 12,
+                Foreground = AccentBrush,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+        }
+
+        var helpText = new TextBlock
+        {
+            Text = "• v1.4 按用户要求不做打印 / CSV 导出；需要发班级群时用值日窗口顶部的“复制本周文本”。\n" +
+                   "• 值日/值周提醒走宠物气泡（默认关闭）：可在本页开启提醒，不弹全屏、不挡 PPT。\n" +
+                   "• 放学后展示：把宠物课表内容替换为今日值日/值周信息，常驻设定分钟后恢复“已放学”。\n" +
+                   "• 打卡加分默认关闭；开启后值日窗口出现“值日完成打卡”按钮，给参与学生 +1 课堂积分。\n" +
+                   "• 首次配置向导会把“开学第一周”同时写入单双周锚点；之后可在「课堂」分区单独调整锚点。",
+            FontFamily = FontRegular,
+            FontSize = 11.5,
+            Foreground = TextTertiary,
+            TextWrapping = TextWrapping.Wrap,
+            LineHeight = 20
+        };
+
+        var windowButtons = ButtonRow(
+            ActionButton("打开值日与轮值", () => AppServices.Current.ShowDutyWindow(), primary: true),
+            ActionButton("重新运行配置向导", OnRunDutyWizard));
+
+        return SectionFrame("值日与轮值",
+            "值周/值日分组轮换、固定任职（班委/课代表）、提醒与放学后展示。首次使用需要强制完成配置向导。",
+            Card(
+                setupBanner,
+                FullRow("开学第一周（周一）",
+                    "值周轮换起点，同时作为单双周锚点；首次配置必填，后续可修改（自动对齐到周一）。",
+                    firstWeekPanel),
+                Divider(),
+                Row("宠物显示轮值信息", "在宠物课表区显示今日值日/值周；放学后替换课表内容。",
+                    Toggle(s.ShowDutyOnPet, v => Settings.Update(x => x.ShowDutyOnPet = v))),
+                Divider(),
+                SliderRow("放学后展示分钟",
+                    "放学后把课表位置换成今日值日/值周信息，常驻 N 分钟后恢复“已放学”（0=关闭，默认 60）。",
+                    0, 180, Math.Clamp(cfg.Display.AfterSchoolMinutes, 0, 180), 5,
+                    v => v <= 0 ? "关闭" : $"{(int)Math.Round(v)} 分钟",
+                    v => UpdateDutyConfig(c => c.Display.AfterSchoolMinutes = (int)Math.Round(v))),
+                Divider(),
+                Row("黑板类关键词",
+                    "岗位名包含这些关键词时，在课表折叠/展开态常驻最顶端（逗号/顿号分隔）。",
+                    keywordPanel),
+                Divider(),
+                Row("黑板类岗位置顶", "关闭后所有岗位严格按岗位顺序显示。",
+                    Toggle(cfg.Display.ShowBlackboardTop, v => UpdateDutyConfig(c => c.Display.ShowBlackboardTop = v))),
+                Divider(),
+                Row("值日打卡加分",
+                    "值日完成打卡时给参与学生 +1 课堂积分（默认关闭；开启后值日窗口显示打卡按钮）。",
+                    Toggle(cfg.AwardPointsOnCheckIn, v =>
+                    {
+                        UpdateDutyConfig(c => c.AwardPointsOnCheckIn = v);
+                        RebuildSection("duty");
+                    })),
+                Divider(),
+                Row("值日提醒",
+                    "值日/换周/交接气泡提醒（默认关闭；开启后按提醒设置弹宠物气泡，不抢焦点、不挡 PPT）。",
+                    Toggle(cfg.Reminders.Enabled, v => UpdateDutyConfig(c => c.Reminders.Enabled = v))),
+                Divider(),
+                Row("窗口与向导",
+                    "查看本周安排、岗位与分组、班委/课代表、历史打卡；或重新运行首次配置向导。",
+                    windowButtons)
+            ),
+            Card(FullRow("说明", null, helpText)));
+    }
+
+    /// <summary>通过 IDutyService 保存值日配置（DutyConfig 不在 AppSettings 里，需要走服务）。</summary>
+    private void UpdateDutyConfig(Action<DutyConfig> mutate)
+    {
+        Guard("修改值日配置", () =>
+        {
+            if (!AppServices.IsInitialized) return;
+            var duty = AppServices.Current.Duty;
+            var config = duty.Config.Clone();
+            mutate(config);
+            _suppressDutyRebuild = true;
+            try
+            {
+                duty.Save(config);
+            }
+            finally
+            {
+                _suppressDutyRebuild = false;
+            }
+        });
+    }
+
+    private void OnRunDutyWizard()
+    {
+        Guard("打开值日配置向导", () =>
+        {
+            var wizard = new DutySetupWizard { Owner = this };
+            if (wizard.ShowDialog() == true) RebuildSection("duty");
+        });
+    }
+
+    /// <summary>分区内卡片的小标题。</summary>
+    private TextBlock SectionCardTitle(string text) => new()
+    {
+        Text = text,
+        FontFamily = FontMedium,
+        FontSize = 13,
+        Foreground = TextSecondary,
+        Margin = new Thickness(0, 0, 0, 10)
+    };
 }

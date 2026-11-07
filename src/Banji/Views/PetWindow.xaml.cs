@@ -77,6 +77,15 @@ public partial class PetWindow : Window
     private bool _lastHidePet;
     private string _foldedSignature = "";
 
+    // v1.4.0：值周/值日 + 单双周面板
+    private string _dutySignature = "";
+    private DutyScheduleView? _dutySchedule;
+    private bool _afterSchoolDutyActive;
+    private string _weekHeaderText = "";
+    private string _weekShortText = "";
+    private string _dutySummaryText = "";
+    private IReadOnlyList<DutyTaskLine> _topDutyLines = Array.Empty<DutyTaskLine>();
+
     public PetWindow()
     {
         InitializeComponent();
@@ -690,6 +699,8 @@ public partial class PetWindow : Window
         services.Timers.StateChanged += OnTimerStateChanged;
         services.Notices.ToastRequested += OnToastRequested;
         services.Notices.ToastDismissed += OnToastDismissed;
+        services.Duty.Changed += OnDutyChanged;
+        services.WeekParity.Changed += OnWeekParityChanged;
         SystemParameters.StaticPropertyChanged += OnSystemParametersChanged;
     }
 
@@ -935,23 +946,64 @@ public partial class PetWindow : Window
         }
     }
 
-    /// <summary>刷新折叠态的“下节卡片”文案（上课中带下课倒计时）。</summary>
+    /// <summary>
+    /// 刷新折叠态的“下节卡片”文案（上课中带下课倒计时）。
+    /// v1.4.0：顶部压一行黑板类岗位、右侧显示单双周短文本、底部显示值周/值日行（可点击）。
+    /// </summary>
     private void RefreshFoldedCard(bool force)
     {
         try
         {
             var now = _previewTime ?? DateTime.Now;
             var info = FoldedTimetableFormatter.Fold(_snapshot, now);
-            var signature = $"{info.HasData}|{info.Label}|{info.MainText}|{info.Secondary}";
+
+            var mode = _dutySchedule?.Mode ?? DutyMode.Weekly;
+            // 折叠态空间有限：只压最靠前的一条黑板岗位，多于一条时提示“等 N 项”
+            var topText = _topDutyLines.Count > 0
+                ? _topDutyLines[0].Text + (_topDutyLines.Count > 1 ? $" 等{_topDutyLines.Count}项" : "")
+                : "";
+            var showAfterSchoolDuty = _afterSchoolDutyActive && _dutySchedule is not null;
+
+            string label;
+            string main;
+            string? secondary;
+            if (showAfterSchoolDuty && _dutySchedule is not null)
+            {
+                label = DutyPanelFormatter.DutyLabel(mode);
+                main = _dutySchedule.IsPaused
+                    ? (mode == DutyMode.Weekly ? "本周暂停" : "今日暂停")
+                    : string.IsNullOrWhiteSpace(_dutySchedule.GroupName) ? "未分组" : _dutySchedule.GroupName!.Trim();
+                var rest = DutyPanelFormatter.NonTopTaskLines(_dutySchedule.Tasks);
+                secondary = rest.Count > 0 ? rest[0].Text : null;
+            }
+            else
+            {
+                label = string.IsNullOrEmpty(info.Label) ? "今天" : info.Label;
+                main = info.MainText;
+                secondary = info.Secondary;
+            }
+
+            var dutyLink = _afterSchoolDutyActive
+                ? "查看值日详情 ›"
+                : _dutySummaryText;
+            var weekRight = _weekShortText.Length > 0 ? _weekShortText : "点击展开";
+
+            var signature = string.Join("|",
+                label, main, secondary ?? "", topText, dutyLink, weekRight, _dutySchedule is not null);
             if (!force && signature == _foldedSignature) return;
             _foldedSignature = signature;
 
-            FoldedLabel.Text = string.IsNullOrEmpty(info.Label) ? "今天" : info.Label;
-            FoldedMain.Text = info.MainText;
-            FoldedSecondary.Text = info.Secondary ?? "";
-            FoldedSecondary.Visibility = string.IsNullOrEmpty(info.Secondary)
+            FoldedTopTask.Text = topText;
+            FoldedTopTask.Visibility = topText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+            FoldedLabel.Text = label;
+            FoldedRightText.Text = weekRight;
+            FoldedMain.Text = main;
+            FoldedSecondary.Text = secondary ?? "";
+            FoldedSecondary.Visibility = string.IsNullOrEmpty(secondary)
                 ? Visibility.Collapsed
                 : Visibility.Visible;
+            FoldedDuty.Text = dutyLink.Length > 0 && !_afterSchoolDutyActive ? dutyLink + " ›" : dutyLink;
+            FoldedDuty.Visibility = dutyLink.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         catch (Exception ex)
         {
@@ -1335,6 +1387,8 @@ public partial class PetWindow : Window
             settings.Buttons.AccentColor,
             settings.Buttons.IdleColor,
             settings.ShowCountdownOnPet,
+            settings.ShowWeekNumberOnPet,
+            settings.ShowDutyOnPet,
             string.Join(";", settings.CountdownEvents.Select(c => $"{c.Id}:{c.Name}:{c.Date:yyyyMMdd}:{c.Enabled}:{c.Color}")));
     }
 
@@ -1372,11 +1426,194 @@ public partial class PetWindow : Window
     private void RefreshFromSnapshot(bool force)
     {
         var overrun = ResolveOverrunElapsed();
+        RefreshDutyAndParity(force);
         RefreshInfo(_snapshot, overrun);
         RefreshTimetable(_snapshot, force);
         RefreshFoldedCard(force);
         UpdateTriangleStates();
         UpdatePanelSizeIfNeeded();
+    }
+
+    // =========================================================================
+    // v1.4.0：值周/值日 + 单双周 面板
+    // =========================================================================
+
+    /// <summary>读取单双周与值日服务，刷新“周次标题 / 黑板置顶 / 值周行”，并决定放学后是否替换课表。</summary>
+    private void RefreshDutyAndParity(bool force)
+    {
+        try
+        {
+            var settings = Settings;
+            var snapshot = _snapshot;
+            var date = DateOnly.FromDateTime(snapshot.Now);
+
+            // 单双周标题（受 ShowWeekNumberOnPet + EnableWeekParity 控制）
+            var parity = AppServices.Current.WeekParity;
+            if (settings.ShowWeekNumberOnPet && parity.Enabled)
+            {
+                var week = parity.GetWeekNumber(date);
+                var current = parity.GetParity(date);
+                _weekHeaderText = DutyPanelFormatter.WeekHeaderText(week, current, true, true);
+                _weekShortText = DutyPanelFormatter.WeekShortText(week, current, true, true);
+            }
+            else
+            {
+                _weekHeaderText = "";
+                _weekShortText = "";
+            }
+
+            // 值日/值周（未配置时安静地不显示，避免宠物面板出现“未配置”噪音）
+            var duty = AppServices.Current.Duty;
+            Core.Models.DutyConfig? config = null;
+            var dutyEnabled = false;
+            try
+            {
+                config = duty.Config;
+                dutyEnabled = settings.ShowDutyOnPet && duty.IsConfigured && config.Display.ShowOnPet;
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"读取值日配置失败：{ex.Message}");
+            }
+
+            if (dutyEnabled && config is not null)
+            {
+                _dutySchedule = duty.GetSchedule(date);
+                var mode = config.Mode;
+                _dutySummaryText = DutyPanelFormatter.DutySummaryText(mode, _dutySchedule);
+                _topDutyLines = config.Display.ShowBlackboardTop
+                    ? DutyPanelFormatter.TopTaskLines(_dutySchedule?.Tasks)
+                    : Array.Empty<DutyTaskLine>();
+                _afterSchoolDutyActive = config.Display.ShowAfterSchoolInfo
+                    && DutyPanelFormatter.IsAfterSchoolDutyWindow(snapshot, config.Display.AfterSchoolMinutes, true);
+            }
+            else
+            {
+                _dutySchedule = null;
+                _dutySummaryText = "";
+                _topDutyLines = Array.Empty<DutyTaskLine>();
+                _afterSchoolDutyActive = false;
+            }
+
+            var signature = string.Join("|",
+                _weekHeaderText,
+                _weekShortText,
+                _afterSchoolDutyActive,
+                _dutySummaryText,
+                string.Join(";", _topDutyLines.Select(l => l.Text)));
+            if (!force && signature == _dutySignature) return;
+            _dutySignature = signature;
+            _timetableSignature = "";
+            _foldedSignature = "";
+
+            // 面板顶部周次标题
+            if (_weekHeaderText.Length > 0)
+            {
+                WeekHeaderLine.SetText(_weekHeaderText, _fontLight, 9.5, WhiteFaintBrush);
+                WeekHeaderLine.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                WeekHeaderLine.Visibility = Visibility.Collapsed;
+            }
+
+            // 黑板类岗位置顶行
+            if (_topDutyLines.Count > 0)
+            {
+                var lines = _topDutyLines
+                    .Select(l => (IReadOnlyList<HaloSegment>)new List<HaloSegment>
+                    {
+                        new(l.TaskName, _fontMedium, 10.5, BrandLightBrush),
+                        new("：", _fontLight, 10.5, WhiteFaintBrush),
+                        new(l.MembersText, _fontLight, 10.5, WhiteSoftBrush)
+                    })
+                    .ToList();
+                TopTaskBody.SetLines(lines);
+                TopTaskBody.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                TopTaskBody.Visibility = Visibility.Collapsed;
+            }
+
+            // 值周/值日行（点击打开“值日与轮值”）
+            if (_dutySummaryText.Length > 0)
+            {
+                DutyLine.SetText(_dutySummaryText, _fontLight, 10, BrandLightBrush);
+                DutyLineHost.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                DutyLineHost.Visibility = Visibility.Collapsed;
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error("刷新值日/单双周面板失败", ex);
+        }
+    }
+
+    private void OnDutyChanged(object? sender, EventArgs e) => DispatchDutyRefresh();
+
+    private void OnWeekParityChanged(object? sender, EventArgs e) => DispatchDutyRefresh();
+
+    private void DispatchDutyRefresh()
+    {
+        try
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke(new Action(RefreshAfterDutyChange));
+                return;
+            }
+            RefreshAfterDutyChange();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"刷新值日/单双周失败：{ex.Message}");
+        }
+    }
+
+    private void RefreshAfterDutyChange()
+    {
+        try
+        {
+            _timetableSignature = "";
+            _foldedSignature = "";
+            _dutySignature = "";
+            _snapshot = GetLiveSnapshot();
+            RefreshFromSnapshot(force: true);
+            UpdatePanelSizeIfNeeded();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("响应值日/单双周变化失败", ex);
+        }
+    }
+
+    private void OnDutyLineClick(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        OpenDutyWindow();
+    }
+
+    private void OnFoldedDutyClick(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        OpenDutyWindow();
+    }
+
+    private void OpenDutyWindow()
+    {
+        try
+        {
+            TouchAllActivity();
+            AppServices.Current.ShowDutyWindow();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("打开值日与轮值窗口失败", ex);
+        }
     }
 
     private TimeSpan? ResolveOverrunElapsed()
@@ -1486,14 +1723,37 @@ public partial class PetWindow : Window
         var expanded = Settings.TimetableExpanded;
         var today = snapshot.Today ?? Array.Empty<CourseOccurrence>();
         var highlighted = snapshot.Highlighted;
+        var afterSchoolLines = _afterSchoolDutyActive && _dutySchedule is not null
+            ? DutyPanelFormatter.AfterSchoolLines(_dutySchedule.Mode, _dutySchedule)
+            : Array.Empty<DutyTaskLine>();
         var signature = string.Join("|",
             expanded,
             snapshot.Phase,
             today.Count,
             highlighted?.PeriodIndex,
+            _afterSchoolDutyActive,
+            string.Join(";", afterSchoolLines.Select(l => l.Text)),
             string.Join(";", today.Select(c => $"{c.PeriodIndex}:{c.Course}:{(int)c.Status}")));
         if (!force && signature == _timetableSignature) return;
         _timetableSignature = signature;
+
+        // v1.4.0：放学后 N 分钟内，用轮值信息替换课表内容（之后恢复“已放学/今天的课已上完”）
+        if (_afterSchoolDutyActive && _dutySchedule is not null)
+        {
+            TimetableTitle.SetText("放学后", _fontLight, 10.5, WhiteMutedBrush);
+            var dutyLines = BuildDutyBodyLines(afterSchoolLines);
+            if (dutyLines.Count > 0)
+            {
+                TimetableEmpty.Visibility = Visibility.Collapsed;
+                TimetableBody.SetLines(dutyLines);
+            }
+            else
+            {
+                TimetableBody.Clear();
+                SetTimetableHint("值日任务已显示在顶部");
+            }
+            return;
+        }
 
         TimetableTitle.SetText(PetUiFormatter.TimetableTitle(_previewTime ?? DateTime.Now),
             _fontLight, 10.5, WhiteMutedBrush);
@@ -1537,6 +1797,22 @@ public partial class PetWindow : Window
 
         TimetableEmpty.Visibility = Visibility.Collapsed;
         TimetableBody.SetLines(lines);
+    }
+
+    /// <summary>把值日任务行渲染成课表样式的悬浮文字行（任务名 + 成员）。</summary>
+    private List<IReadOnlyList<HaloSegment>> BuildDutyBodyLines(IReadOnlyList<DutyTaskLine> lines)
+    {
+        var result = new List<IReadOnlyList<HaloSegment>>(lines.Count);
+        foreach (var line in lines)
+        {
+            result.Add(new List<HaloSegment>
+            {
+                new(line.TaskName, _fontMedium, 11.5, WhiteSoftBrush),
+                new("：", _fontLight, 10.5, WhiteFaintBrush),
+                new(line.MembersText, _fontLight, 10.5, WhiteMutedBrush)
+            });
+        }
+        return result;
     }
 
     private void SetTimetableHint(string text)
@@ -1588,6 +1864,8 @@ public partial class PetWindow : Window
             services.Timers.StateChanged -= OnTimerStateChanged;
             services.Notices.ToastRequested -= OnToastRequested;
             services.Notices.ToastDismissed -= OnToastDismissed;
+            services.Duty.Changed -= OnDutyChanged;
+            services.WeekParity.Changed -= OnWeekParityChanged;
         }
         catch (Exception ex)
         {
@@ -1630,6 +1908,12 @@ public partial class PetWindow : Window
         catch { return fallback; }
     }
 }
+
+
+
+
+
+
 
 
 

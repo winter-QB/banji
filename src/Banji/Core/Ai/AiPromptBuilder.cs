@@ -66,7 +66,7 @@ public static class AiPromptBuilder
 
     /// <summary>
     /// 构造 ChatML prompt：
-    /// system 段 = 内置系统提示词 + 调用方传入的 system 消息（若有）；
+    /// system 段 = 内置系统提示词 + 动态上下文（v1.4：日期/单双周/值日）+ 调用方传入的 system 消息（若有）；
     /// 对话段按时间顺序；从最新消息往前截断历史，放不下更早的消息就丢弃。
     /// 最新一条用户消息即使超预算也会被截断内容后保留（尽量保留开头）。
     /// </summary>
@@ -74,17 +74,25 @@ public static class AiPromptBuilder
     /// <param name="promptTokenBudget">prompt 允许的最大 token 数。</param>
     /// <param name="countTokens">token 计数函数；为 null 时用 <see cref="EstimateTokens"/>。</param>
     /// <param name="droppedMessages">被丢弃的历史消息条数。</param>
+    /// <param name="dynamicSystemContext">
+    /// v1.4.0 动态上下文块（由 <see cref="AiPromptContextBuilder.BuildSystemContext"/> 生成）；
+    /// 为 null/空时完全保持原有 prompt 行为。提示词预算连基础 system 都放不下时会自动去掉它。
+    /// </param>
     public static string BuildChatPrompt(
         IReadOnlyList<AiChatMessage>? history,
         int promptTokenBudget,
         Func<string, int>? countTokens,
-        out int droppedMessages)
+        out int droppedMessages,
+        string? dynamicSystemContext = null)
     {
         droppedMessages = 0;
         var counter = countTokens ?? EstimateTokens;
         var budget = Math.Max(MinPromptTokenBudget, promptTokenBudget);
 
         var systemParts = new List<string> { SystemPrompt.Trim() };
+        var hasDynamicContext = !string.IsNullOrWhiteSpace(dynamicSystemContext);
+        if (hasDynamicContext) systemParts.Add(dynamicSystemContext!.Trim());
+
         var dialog = new List<AiChatMessage>();
         if (history is not null)
         {
@@ -105,6 +113,15 @@ public static class AiPromptBuilder
 
         var systemBlock = BuildSystemBlock(systemParts);
         var used = counter(systemBlock) + counter(AssistantOpen) + 4;
+
+        // 极端情况：上下文太长、预算连基础 system 都快放不下时，先丢掉“动态上下文”，保住正常对话能力。
+        if (hasDynamicContext && used > budget)
+        {
+            systemParts.RemoveAt(1);
+            systemBlock = BuildSystemBlock(systemParts);
+            used = counter(systemBlock) + counter(AssistantOpen) + 4;
+        }
+
         var remaining = Math.Max(0, budget - used);
 
         // 从最新往旧收集，直到超出预算
@@ -152,24 +169,47 @@ public static class AiPromptBuilder
 
     /// <summary>构造 ChatML prompt（用内置估算器计数，单测/无 tokenizer 场景用）。</summary>
     public static string BuildChatPrompt(IReadOnlyList<AiChatMessage>? history, int promptTokenBudget,
-        out int droppedMessages)
-        => BuildChatPrompt(history, promptTokenBudget, null, out droppedMessages);
+        out int droppedMessages, string? dynamicSystemContext = null)
+        => BuildChatPrompt(history, promptTokenBudget, null, out droppedMessages, dynamicSystemContext);
 
-    /// <summary>构造宠物台词生成 prompt（要求 5 条短句，一行一条）。</summary>
-    public static string BuildQuipPrompt(string? contextHint = null, int maxLines = 5)
+    /// <summary>
+    /// 构造宠物台词生成 prompt（要求多行短句，一行一条）。
+    /// <paramref name="dynamicSystemContext"/> 为 v1.4 动态上下文（仅值日相关场景注入）；
+    /// <paramref name="dutyFocus"/> 为 true 时要求台词围绕“今天的值日/值周安排”。
+    /// </summary>
+    public static string BuildQuipPrompt(string? contextHint = null, int maxLines = 5,
+        string? dynamicSystemContext = null, bool dutyFocus = false)
     {
         var hint = string.IsNullOrWhiteSpace(contextHint) ? "课堂日常" : contextHint.Trim();
-        var user =
-            $"请以「班机」的口吻写 {Math.Max(1, maxLines)} 条彼此不同的短台词，场景是：{hint}。\n" +
-            "要求：每条不超过 24 个字，一行一条，只输出台词本身，不要编号、不要引号、不要解释。";
-        return $"{ImStart}system\n{QuipSystemPrompt}{ImEnd}\n{ImStart}user\n{user}{ImEnd}\n{AssistantOpen}";
+        var lines = Math.Max(1, maxLines);
+        var system = QuipSystemPrompt;
+        if (!string.IsNullOrWhiteSpace(dynamicSystemContext))
+            system = system.TrimEnd() + "\n" + dynamicSystemContext!.Trim();
+
+        string user;
+        if (dutyFocus)
+        {
+            user = $"请以「班机」的口吻写 {lines} 条与“今天的值日/值周安排”有关的短台词。\n" +
+                   "要求：每条不超过 24 个字，可以自然提到值日组或某个岗位（如擦黑板），但不要罗列名单；" +
+                   "一行一条，只输出台词本身，不要编号、不要引号、不要解释。";
+        }
+        else
+        {
+            user = $"请以「班机」的口吻写 {lines} 条彼此不同的短台词，场景是：{hint}。\n" +
+                   "要求：每条不超过 24 个字，一行一条，只输出台词本身，不要编号、不要引号、不要解释。";
+        }
+
+        return $"{ImStart}system\n{system}{ImEnd}\n{ImStart}user\n{user}{ImEnd}\n{AssistantOpen}";
     }
 
-    /// <summary>构造开场白生成 prompt。</summary>
-    public static string BuildGreetingPrompt(string? contextHint = null)
+    /// <summary>构造开场白生成 prompt（v1.4：可带日期/单双周/值日动态上下文）。</summary>
+    public static string BuildGreetingPrompt(string? contextHint = null, string? dynamicSystemContext = null)
     {
         var hint = string.IsNullOrWhiteSpace(contextHint) ? "" : $"\n（当前场景：{contextHint.Trim()}）";
-        return $"{ImStart}system\n{GreetingSystemPrompt}{ImEnd}\n" +
+        var system = GreetingSystemPrompt;
+        if (!string.IsNullOrWhiteSpace(dynamicSystemContext))
+            system = system.TrimEnd() + "\n" + dynamicSystemContext!.Trim();
+        return $"{ImStart}system\n{system}{ImEnd}\n" +
                $"{ImStart}user\n请说一句开场白。{hint}{ImEnd}\n{AssistantOpen}";
     }
 

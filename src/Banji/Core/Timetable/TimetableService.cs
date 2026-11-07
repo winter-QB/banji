@@ -32,8 +32,34 @@ public sealed class TimetableService : ITimetableService
 
         _current = SafeJsonStore.Load(_timetablePath, WeekTimetable.CreateDefault) ?? WeekTimetable.CreateDefault();
         _overrides = SafeJsonStore.Load(_overridesPath, () => new List<DayOverride>()) ?? new List<DayOverride>();
+
+        // v1.4.0：SchemaVersion 1 → 2 迁移（旧课程全部按“通用”处理，并备份旧文件）
+        var migrated = MigrateLegacySchema(_current);
         NormalizeTimetable(_current);
         NormalizeOverrides();
+        if (migrated)
+        {
+            Log.Info($"课表数据已从 SchemaVersion 1 迁移到 2（旧课程按通用处理）：{_timetablePath}");
+            Save();
+        }
+    }
+
+    /// <summary>旧数据迁移：SchemaVersion &lt; 2 的条目一律视为通用（旧文件没有 Weeks 字段）。</summary>
+    private static bool MigrateLegacySchema(WeekTimetable timetable)
+    {
+        if (timetable.SchemaVersion >= 2) return false;
+        timetable.SchemaVersion = 2;
+        if (timetable.Days is not null)
+        {
+            foreach (var entries in timetable.Days.Values.Where(list => list is not null))
+            {
+                foreach (var entry in entries)
+                {
+                    if (entry is not null) entry.Weeks = WeekType.All;
+                }
+            }
+        }
+        return true;
     }
 
     public WeekTimetable Current
@@ -75,6 +101,7 @@ public sealed class TimetableService : ITimetableService
     {
         if (timetable is null) throw new ArgumentNullException(nameof(timetable));
         var copy = timetable.Clone();
+        MigrateLegacySchema(copy);
         NormalizeTimetable(copy);
         lock (_gate) _current = copy;
         Save();
@@ -126,19 +153,78 @@ public sealed class TimetableService : ITimetableService
     {
         if (periodIndex <= 0) return;
         course ??= "";
+        bool changed;
         lock (_gate)
         {
-            if (!_current.Days.TryGetValue(day, out var list) || list is null)
-                _current.Days[day] = list = new List<TimetableEntry>();
-            var entry = list.FirstOrDefault(e => e.PeriodIndex == periodIndex);
-            if (entry is null)
-                list.Add(new TimetableEntry { PeriodIndex = periodIndex, Course = course.Trim() });
-            else
-                entry.Course = course.Trim();
-            list.Sort((a, b) => a.PeriodIndex.CompareTo(b.PeriodIndex));
+            // v1.4.0：SetCourse 只写“通用”条目，单/双专用条目保持不变
+            changed = TimetableParityEditor.SetEntry(_current, day, periodIndex, WeekType.All, course);
         }
+        if (!changed) return;
         Save();
         RaiseChanged();
+    }
+
+    // =========================================================================
+    // v1.4.0：单双周编辑（TimetableWindow 三页签使用；接口保持不变，由类公开）
+    // =========================================================================
+
+    /// <summary>写某天某节某周类型的课程（All/Odd/Even）；单/双页签传空字符串表示删除专用条目恢复为通用。</summary>
+    public void SetEntry(DayOfWeek day, int periodIndex, WeekType weeks, string course)
+    {
+        if (periodIndex <= 0) return;
+        bool changed;
+        lock (_gate) changed = TimetableParityEditor.SetEntry(_current, day, periodIndex, weeks, course);
+        if (!changed) return;
+        Save();
+        RaiseChanged();
+    }
+
+    /// <summary>把通用课复制到单周/双周（返回复制的格子数）。</summary>
+    public int CopyAllTo(WeekType target)
+    {
+        int copied;
+        lock (_gate) copied = TimetableParityEditor.CopyAllTo(_current, target);
+        if (copied <= 0) return 0;
+        Save();
+        RaiseChanged();
+        return copied;
+    }
+
+    /// <summary>清空单周或双周的专用条目（返回删除条数）。</summary>
+    public int ClearWeek(WeekType target)
+    {
+        int removed;
+        lock (_gate) removed = TimetableParityEditor.ClearWeek(_current, target);
+        if (removed <= 0) return 0;
+        Save();
+        RaiseChanged();
+        return removed;
+    }
+
+    /// <summary>删除全部单/双专用条目，恢复为通用（返回删除条数）。</summary>
+    public int RestoreAllToAll()
+    {
+        int removed;
+        lock (_gate) removed = TimetableParityEditor.RestoreAllToAll(_current);
+        if (removed <= 0) return 0;
+        Save();
+        RaiseChanged();
+        return removed;
+    }
+
+    /// <summary>某格“恢复为通用”：删除该格的单/双专用条目（返回是否删除）。</summary>
+    public bool RestoreCellToAll(DayOfWeek day, int periodIndex)
+    {
+        var removed = false;
+        lock (_gate)
+        {
+            removed = TimetableParityEditor.RemoveEntry(_current, day, periodIndex, WeekType.Odd) |
+                      TimetableParityEditor.RemoveEntry(_current, day, periodIndex, WeekType.Even);
+        }
+        if (!removed) return false;
+        Save();
+        RaiseChanged();
+        return true;
     }
 
     // =========================================================================
@@ -196,6 +282,7 @@ public sealed class TimetableService : ITimetableService
         List<DayOverride> overrides;
         lock (_gate)
         {
+            _current.SchemaVersion = 2; // v1.4.0：始终以 SchemaVersion 2 保存
             timetable = _current;
             overrides = _overrides;
         }
@@ -210,6 +297,7 @@ public sealed class TimetableService : ITimetableService
     /// <summary>规整课表：节次按开始时间排序并重排 1..N，课程索引同步迁移，剔除非法时间。</summary>
     private static void NormalizeTimetable(WeekTimetable timetable)
     {
+        timetable.SchemaVersion = 2;
         timetable.Periods ??= new List<ClassPeriod>();
         timetable.Breaks ??= new List<BreakSegment>();
         timetable.Days ??= new Dictionary<DayOfWeek, List<TimetableEntry>>();
@@ -235,6 +323,9 @@ public sealed class TimetableService : ITimetableService
         if (map.Count > 0)
             timetable.Days = RemapDays(timetable.Days, map);
 
+        // v1.4.0：同 (节次, 周类型) 去重、非法周类型归通用、按节次排序
+        TimetableParityEditor.NormalizeEntries(timetable);
+
         timetable.Breaks = timetable.Breaks
             .Where(b => b is not null && b.End > b.Start)
             .OrderBy(b => b.Start)
@@ -257,18 +348,23 @@ public sealed class TimetableService : ITimetableService
             {
                 if (entry is null) continue;
                 if (!indexMap.TryGetValue(entry.PeriodIndex, out var newIndex)) continue;
-                var existing = list.FirstOrDefault(e => e.PeriodIndex == newIndex);
+                var weeks = entry.Weeks is WeekType.All or WeekType.Odd or WeekType.Even ? entry.Weeks : WeekType.All;
+                var existing = list.FirstOrDefault(e => e.PeriodIndex == newIndex && e.Weeks == weeks);
                 if (existing is null)
                 {
-                    list.Add(new TimetableEntry { PeriodIndex = newIndex, Course = entry.Course ?? "" });
+                    list.Add(new TimetableEntry { PeriodIndex = newIndex, Course = entry.Course ?? "", Weeks = weeks });
                 }
-                else if (string.IsNullOrWhiteSpace(existing.Course) && !string.IsNullOrWhiteSpace(entry.Course))
+                else if (!string.IsNullOrWhiteSpace(entry.Course))
                 {
+                    // 同一 (节次, 周类型) 重复时保留最后编辑的一条
                     existing.Course = entry.Course!;
                 }
             }
             if (list.Count > 0)
-                result[day] = list.OrderBy(e => e.PeriodIndex).ToList();
+            {
+                TimetableParityEditor.Sort(list);
+                result[day] = list;
+            }
         }
         return result;
     }

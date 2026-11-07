@@ -508,6 +508,8 @@ public partial class MenuFlyout : Window
 
     private void OnChatClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowChatWindow());
 
+    private void OnDutyClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowDutyWindow());
+
     private void OnRosterClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowRosterManager());
 
     private void OnTimetableClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowTimetableEditor());
@@ -556,6 +558,7 @@ public partial class MenuFlyout : Window
         }
     }
 }
+
 
 
 

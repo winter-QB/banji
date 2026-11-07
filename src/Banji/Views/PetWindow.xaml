@@ -68,11 +68,16 @@
                         <DropShadowEffect Color="#16305C" BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.22" />
                     </Border.Effect>
                     <StackPanel>
+                        <!-- v1.4.0：黑板类岗位置顶（折叠态压成一行，如“擦黑板：张三”） -->
+                        <TextBlock x:Name="FoldedTopTask" Text="" Margin="0,0,0,3" Visibility="Collapsed"
+                                   FontFamily="{StaticResource Font.Medium}" FontSize="11"
+                                   Foreground="#2F6BD8" TextTrimming="CharacterEllipsis" />
                         <Grid>
                             <TextBlock x:Name="FoldedLabel" Text="下节"
                                        FontFamily="{StaticResource Font.Medium}" FontSize="10.5"
                                        Foreground="#317FFF" VerticalAlignment="Center" />
-                            <TextBlock Text="点击展开" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            <TextBlock x:Name="FoldedRightText" Text="点击展开" HorizontalAlignment="Right"
+                                       VerticalAlignment="Center"
                                        FontFamily="{StaticResource Font.Light}" FontSize="9" Foreground="#A2ABBB" />
                         </Grid>
                         <TextBlock x:Name="FoldedMain" Text="—" Margin="0,2,0,0"
@@ -81,15 +86,30 @@
                         <TextBlock x:Name="FoldedSecondary" Text="" Margin="0,1,0,0" Visibility="Collapsed"
                                    FontFamily="{StaticResource Font.Light}" FontSize="10.5"
                                    Foreground="#6B7280" TextTrimming="CharacterEllipsis" />
+                        <!-- v1.4.0：值周/值日行（点击打开“值日与轮值”） -->
+                        <TextBlock x:Name="FoldedDuty" Text="" Margin="0,3,0,0" Visibility="Collapsed"
+                                   FontFamily="{StaticResource Font.Light}" FontSize="10.5" Foreground="#4A6FA5"
+                                   TextTrimming="CharacterEllipsis" Cursor="Hand"
+                                   MouseLeftButtonUp="OnFoldedDutyClick" ToolTip="打开值日与轮值" />
                     </StackPanel>
                 </Border>
 
                 <StackPanel x:Name="PanelStack" Width="196" HorizontalAlignment="Right">
+                    <!-- v1.4.0：面板顶部周次（第 X 周 · 单/双周） -->
+                    <pet:HaloTextLine x:Name="WeekHeaderLine" Height="15" Margin="0,0,0,4" Visibility="Collapsed" />
+                    <!-- v1.4.0：黑板类岗位置顶（展开态常驻在课表最顶端） -->
+                    <pet:HaloTextStack x:Name="TopTaskBody" RowHeight="19" LineSpacing="0" Margin="0,0,0,4"
+                                       Visibility="Collapsed" />
                     <StackPanel x:Name="TimetableSection">
                         <pet:HaloTextLine x:Name="TimetableTitle" Height="16" Margin="0,0,0,5" />
                         <pet:HaloTextStack x:Name="TimetableBody" RowHeight="21" LineSpacing="1" />
                         <pet:HaloTextLine x:Name="TimetableEmpty" Height="18" Visibility="Collapsed" />
                     </StackPanel>
+                    <!-- v1.4.0：值周/值日行（点击打开“值日与轮值”窗口） -->
+                    <Border x:Name="DutyLineHost" Background="Transparent" Margin="0,4,0,0" Visibility="Collapsed"
+                            Cursor="Hand" MouseLeftButtonUp="OnDutyLineClick" ToolTip="打开值日与轮值">
+                        <pet:HaloTextLine x:Name="DutyLine" Height="16" />
+                    </Border>
                     <pet:HaloTextStack x:Name="InfoBody" LineSpacing="2" Margin="0,9,0,0" />
                 </StackPanel>
             </Grid>
@@ -193,5 +213,6 @@
         </Grid>
     </Canvas>
 </Window>
+
 
 

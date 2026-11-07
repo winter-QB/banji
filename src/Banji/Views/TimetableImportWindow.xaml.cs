@@ -177,12 +177,19 @@ public partial class TimetableImportWindow : Window
 
         if (preview.Candidate is null)
         {
+            WeekStatsText.Visibility = Visibility.Collapsed;
             ClearPreview();
             BtnConfirm.IsEnabled = false;
             EmptyHint.Text = "未能识别出课表\n\n请检查文件内容，或换一个工作表再试。\n支持：星期为列 / 星期为行 / 每行一节 / 时间表头 等常见布局。";
             SetStatus("识别失败：没有从该工作表读取到课程。", true);
             return;
         }
+
+        // v1.4.0：单双周统计（通用 / 单周 / 双周）
+        var (allCount, oddCount, evenCount) = TimetableParityEditor.CountByWeekType(preview.Candidate);
+        WeekStatsText.Text = $"单双周统计：通用 {allCount} 节 · 单周 {oddCount} 节 · 双周 {evenCount} 节"
+                             + (oddCount + evenCount > 0 ? "（单/双专用条目会按周解析）" : "（全部为通用课程）");
+        WeekStatsText.Visibility = Visibility.Visible;
 
         BuildPreviewGrid(preview.Candidate);
         BtnConfirm.IsEnabled = true;
@@ -265,9 +272,27 @@ public partial class TimetableImportWindow : Window
 
             for (var i = 0; i < days.Count; i++)
             {
-                var course = timetable.CourseAt(days[i], period.Index) ?? "";
-                AddPreviewCell(row + 1, i + 1, string.IsNullOrWhiteSpace(course) ? "—" : course, false,
-                    string.IsNullOrWhiteSpace(course) ? TextTertiary : TextPrimary);
+                var day = days[i];
+                var entries = timetable.EntriesFor(day).Where(e => e.PeriodIndex == period.Index).ToList();
+                if (entries.Count == 0)
+                {
+                    AddPreviewCell(row + 1, i + 1, "—", false, TextTertiary);
+                    continue;
+                }
+
+                // v1.4.0：同一格可能同时有 通用/单周/双周 条目，预览里全部展示
+                var parts = new List<string>();
+                var allCourse = entries.FirstOrDefault(e => e.Weeks == WeekType.All)?.Course ?? "";
+                if (!string.IsNullOrWhiteSpace(allCourse)) parts.Add(allCourse);
+                foreach (var entry in entries.Where(e => e.Weeks != WeekType.All))
+                {
+                    if (string.IsNullOrWhiteSpace(entry.Course)) continue;
+                    parts.Add($"{(entry.Weeks == WeekType.Odd ? "单" : "双")}：{entry.Course}");
+                }
+
+                var text = parts.Count > 0 ? string.Join("\n", parts) : "—";
+                var hasSpecific = entries.Any(e => e.Weeks != WeekType.All && !string.IsNullOrWhiteSpace(e.Course));
+                AddPreviewCell(row + 1, i + 1, text, false, hasSpecific ? Warning : TextPrimary);
             }
         }
     }

@@ -154,6 +154,9 @@
                 <Button x:Name="MenuChat" Style="{StaticResource Menu.Item}" Click="OnChatClick">
                     <TextBlock Text="和班机聊天" />
                 </Button>
+                <Button x:Name="MenuDuty" Style="{StaticResource Menu.Item}" Click="OnDutyClick">
+                    <TextBlock Text="值日与轮值" />
+                </Button>
                 <Button x:Name="MenuRoster" Style="{StaticResource Menu.Item}" Click="OnRosterClick">
                     <TextBlock Text="花名册管理" />
                 </Button>
@@ -346,6 +349,7 @@
         </Border>
     </Grid>
 </Window>
+
 
 
 

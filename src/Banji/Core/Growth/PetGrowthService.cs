@@ -1,4 +1,4 @@
-using Banji.Core.Abstractions;
+﻿using Banji.Core.Abstractions;
 using Banji.Core.Infrastructure;
 using Banji.Core.IO;
 using Banji.Core.Models;
@@ -36,8 +36,21 @@ public sealed class PetGrowthService : IPetGrowthService
     {
         _path = filePath ?? Path.Combine(AppPaths.Root, "pet-growth.json");
         _now = now ?? (() => DateTime.Now);
+
+        var existed = File.Exists(_path);
         _stats = SafeJsonStore.Load(_path, () => new PetGrowthStats());
         _stats.Normalize();
+
+        // PetGrowthStats 的默认日期来自真实 DateTime.Now；测试/预览用注入时钟时会不一致
+        // （例如在 11/6 用注入时钟首次启动，默认 LastUseDate 却是真实今天 11/7，跨天永远不加）。
+        // 这里对“新建数据文件”用注入时钟重新初始化，保证与服务时钟一致。
+        if (!existed)
+        {
+            var today = DateOnly.FromDateTime(_now());
+            _stats.FirstUseDate = today;
+            _stats.LastUseDate = today;
+            _stats.DaysUsed = 1;
+        }
     }
 
     public PetGrowthStats Stats => _stats;
@@ -84,7 +97,13 @@ public sealed class PetGrowthService : IPetGrowthService
 
     public void Reset()
     {
-        _stats = new PetGrowthStats();
+        var today = DateOnly.FromDateTime(_now());
+        _stats = new PetGrowthStats
+        {
+            FirstUseDate = today,
+            LastUseDate = today,
+            DaysUsed = 1
+        };
         _stats.Normalize();
         Save();
         Changed?.Invoke(this, EventArgs.Empty);
@@ -110,3 +129,4 @@ public sealed class PetGrowthService : IPetGrowthService
 
     private void Save() => SafeJsonStore.Save(_path, _stats);
 }
+

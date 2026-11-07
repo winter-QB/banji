@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Text;
 using System.Windows;
 using Banji.Core.Abstractions;
+using Banji.Core.Boot;
 using Banji.Core.Infrastructure;
 using Banji.Core.Settings;
 using LLama;
@@ -37,6 +38,8 @@ public sealed class AiService : IAiService, IDisposable
     private readonly SemaphoreSlim _generateLock = new(1, 1);
     private readonly SemaphoreSlim _downloadLock = new(1, 1);
     private readonly Queue<string> _quipCache = new();
+    /// <summary>v1.4：值日场景专用台词缓存（优先给“放学后/值日提醒”场景）。</summary>
+    private readonly Queue<string> _dutyQuipCache = new();
 
     private LLamaWeights? _weights;
     private ModelParams? _modelParams;
@@ -44,6 +47,9 @@ public sealed class AiService : IAiService, IDisposable
     private string? _loadedName;
     private string? _loadedPath;
     private int _quipPrefetchRunning;
+    private int _dutyQuipPrefetchRunning;
+    /// <summary>值日台词缓存对应的日期（跨天自动作废）。</summary>
+    private DateOnly _dutyQuipCacheDate;
     private bool _disposed;
 
     // 最近一次生成/加载的统计（UI 显示速度用）
@@ -676,9 +682,14 @@ public sealed class AiService : IAiService, IDisposable
             using var context = weights.CreateContext(modelParams);
             var counter = MakeTokenCounter(context);
             var budget = AiPromptBuilder.ComputePromptBudget((int)context.ContextSize, maxTokens);
-            var prompt = AiPromptBuilder.BuildChatPrompt(history, budget, counter, out var droppedMessages);
+            var dynamicContext = TryCaptureDynamicContextBlock();
+            if (!string.IsNullOrEmpty(dynamicContext))
+                Log.Info("AI 动态上下文：" + TruncateForLog(dynamicContext));
+            var prompt = AiPromptBuilder.BuildChatPrompt(history, budget, counter, out var droppedMessages,
+                dynamicContext);
             var promptTokens = counter(prompt);
-            Log.Info($"AI 生成开始：prompt≈{promptTokens} tokens（丢弃历史 {droppedMessages} 条），最多生成 {maxTokens} tokens");
+            Log.Info($"AI 生成开始：prompt≈{promptTokens} tokens（丢弃历史 {droppedMessages} 条，" +
+                     $"动态上下文 {(string.IsNullOrEmpty(dynamicContext) ? 0 : dynamicContext!.Length)} 字），最多生成 {maxTokens} tokens");
 
             var executor = new InteractiveExecutor(context);
             var inferenceParams = new InferenceParams
@@ -744,6 +755,26 @@ public sealed class AiService : IAiService, IDisposable
         // 绝不阻塞：缓存里有就立刻取，没有就返回 null 并触发后台预取
         if (!IsModelLoaded) return Task.FromResult<string?>(null);
 
+        // v1.4：值日相关场景（放学后/值日提醒）优先取带值日信息的台词；没有就后台预热、本次回退本地台词
+        if (AiPromptContextBuilder.IsDutyScenarioHint(contextHint))
+        {
+            var today = DateOnly.FromDateTime(DateTime.Now);
+            lock (_quipGate)
+            {
+                // 跨天/跨周后旧台词里的“第 X 组 / 单双周”可能过期，直接作废重新预热
+                if (_dutyQuipCacheDate != default && _dutyQuipCacheDate != today) _dutyQuipCache.Clear();
+                while (_dutyQuipCache.Count > 0)
+                {
+                    var dutyQuip = _dutyQuipCache.Dequeue();
+                    if (string.IsNullOrWhiteSpace(dutyQuip)) continue;
+                    TriggerDutyQuipPrefetch(contextHint);
+                    return Task.FromResult<string?>(dutyQuip);
+                }
+            }
+            TriggerDutyQuipPrefetch(contextHint);
+            return Task.FromResult<string?>(null);
+        }
+
         lock (_quipGate)
         {
             while (_quipCache.Count > 0)
@@ -762,7 +793,7 @@ public sealed class AiService : IAiService, IDisposable
     public async Task<string?> TryGenerateGreetingAsync(CancellationToken cancellationToken = default)
     {
         if (!IsModelLoaded) return null;
-        var prompt = AiPromptBuilder.BuildGreetingPrompt();
+        var prompt = AiPromptBuilder.BuildGreetingPrompt(null, TryCaptureDynamicContextBlock());
         var text = await RunRawPromptAsync(prompt, maxTokens: 64, temperature: 0.85, nonBlocking: true,
             cancellationToken).ConfigureAwait(false);
         var greeting = AiTextSanitizer.CleanAssistantText(text);
@@ -826,6 +857,97 @@ public sealed class AiService : IAiService, IDisposable
         {
             Log.Warn("AI 台词预取调度失败：" + ShortMessage(ex));
             Interlocked.Exchange(ref _quipPrefetchRunning, 0);
+        }
+    }
+
+    /// <summary>
+    /// v1.4：值日相关场景的后台台词预取。system prompt 注入今天的值日/值周与单双周上下文，
+    /// 生成 3 条短台词进“值日台词缓存”；没有值日/单双周配置或失败时静默放弃（调用方回退本地台词）。
+    /// </summary>
+    private void TriggerDutyQuipPrefetch(string? contextHint = null)
+    {
+        try
+        {
+            if (!IsModelLoaded) return;
+            var ai = SafeSettings();
+            if (!ai.EnableAiQuips) return;
+
+            lock (_quipGate)
+            {
+                if (_dutyQuipCache.Count >= 3) return;
+            }
+
+            if (Interlocked.CompareExchange(ref _dutyQuipPrefetchRunning, 1, 0) != 0) return;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    if (!IsModelLoaded) return;
+
+                    // 采集放到后台线程：不占用宠物点击所在的 UI 线程
+                    var dynamicContext = TryCaptureDynamicContextBlock();
+                    if (string.IsNullOrWhiteSpace(dynamicContext))
+                    {
+                        // 没有值日/单双周配置时不浪费一次生成，交给本地台词
+                        return;
+                    }
+
+                    var hint = string.IsNullOrWhiteSpace(contextHint) ? "放学后的值日提醒" : contextHint;
+                    var prompt = AiPromptBuilder.BuildQuipPrompt(hint, 3, dynamicContext, dutyFocus: true);
+                    var raw = await RunRawPromptAsync(prompt, maxTokens: 150, temperature: 0.9,
+                        nonBlocking: true, CancellationToken.None).ConfigureAwait(false);
+                    var lines = AiTextSanitizer.ParseQuipLines(raw, 3);
+                    if (lines.Count == 0)
+                    {
+                        Log.Info("AI 值日台词预取：本次没有解析出可用台词（回退本地台词）");
+                        return;
+                    }
+                    var today = DateOnly.FromDateTime(DateTime.Now);
+                    lock (_quipGate)
+                    {
+                        _dutyQuipCacheDate = today;
+                        foreach (var line in lines)
+                        {
+                            if (_dutyQuipCache.Count >= 4) break;
+                            if (_dutyQuipCache.Contains(line)) continue;
+                            _dutyQuipCache.Enqueue(line);
+                        }
+                    }
+                    Log.Info($"AI 值日台词预取成功 {lines.Count} 条：{string.Join(" / ", lines)}");
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn("AI 值日台词预取失败（回退本地台词）：" + ShortMessage(ex));
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _dutyQuipPrefetchRunning, 0);
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("AI 值日台词预取调度失败：" + ShortMessage(ex));
+            Interlocked.Exchange(ref _dutyQuipPrefetchRunning, 0);
+        }
+    }
+
+    /// <summary>
+    /// v1.4：采集动态上下文块（当前日期/星期、单双周、值日摘要），拼成可放进 system prompt 的文本。
+    /// AppServices 未初始化（如单元测试）、服务未配置或任何异常时返回 null，行为与 v1.3 一致。
+    /// </summary>
+    private static string? TryCaptureDynamicContextBlock()
+    {
+        try
+        {
+            if (!AppServices.IsInitialized) return null;
+            return AiPromptContextProvider.TryCaptureSystemBlock();
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("采集 AI 动态上下文失败（已忽略，不影响生成）：" + ex.Message);
+            return null;
         }
     }
 
@@ -993,7 +1115,12 @@ public sealed class AiService : IAiService, IDisposable
 
     private void ClearQuipCache()
     {
-        lock (_quipGate) _quipCache.Clear();
+        lock (_quipGate)
+        {
+            _quipCache.Clear();
+            _dutyQuipCache.Clear();
+            _dutyQuipCacheDate = default;
+        }
     }
 
     private void RaiseStatusChanged()
@@ -1070,6 +1197,7 @@ public sealed class AiService : IAiService, IDisposable
         Unload();
     }
 }
+
 
 
 

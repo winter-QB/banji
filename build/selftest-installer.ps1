@@ -168,6 +168,7 @@ if (-not (Test-Path -LiteralPath $installFull)) {
 # ---------------------------------------------------------------------------
 Write-Title "2. 校验安装内容"
 Assert-Exists (Join-Path $installFull "Banji.exe") "主程序 Banji.exe 已安装"
+Assert-Exists (Join-Path $installFull "msvcp140.dll") "安装目录已随包附带 VC++ 运行库 msvcp140.dll（v1.4 AI 依赖）"
 Assert-Exists (Join-Path $installFull "卸载班机.exe") "卸载程序 卸载班机.exe 已生成"
 Assert-Exists (Join-Path $installFull "README.md") "README.md 已复制"
 Assert-Exists (Join-Path $installFull "HarmonyOS_Sans_LICENSE.txt") "字体许可证已复制"

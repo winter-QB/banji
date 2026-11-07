@@ -183,6 +183,8 @@ public static class TimetableImporter
         public DayOfWeek Day;
         public int PeriodIndex;
         public string Course = "";
+        /// <summary>v1.4.0：通用 / 单周 / 双周（默认通用）。</summary>
+        public WeekType Weeks = WeekType.All;
     }
 
     private sealed class ParsedGrid
@@ -263,6 +265,7 @@ public static class TimetableImporter
             var timeCol = -1;
             var startCol = -1;
             var endCol = -1;
+            var weeksCol = -1;
 
             for (var c = 0; c < headers.Count; c++)
             {
@@ -273,6 +276,7 @@ public static class TimetableImporter
                 else if (periodCol < 0 && IsPeriodHeader(h)) periodCol = c;
                 else if (startCol < 0 && IsStartHeader(h)) startCol = c;
                 else if (endCol < 0 && IsEndHeader(h)) endCol = c;
+                else if (weeksCol < 0 && IsWeeksHeader(h)) weeksCol = c;
                 else if (timeCol < 0 && IsTimeHeader(h)) timeCol = c;
             }
 
@@ -302,7 +306,8 @@ public static class TimetableImporter
 
                 var periodText = periodCol >= 0 ? Cell(row, periodCol) : "";
                 int? index = TryParsePeriodIndex(periodText);
-                var course = CourseText(courseCol >= 0 ? Cell(row, courseCol) : "");
+                var rawCourse = courseCol >= 0 ? Cell(row, courseCol) : "";
+                var course = ParseCourseCell(rawCourse, out var suffixWeeks);
                 TimeSpan? rangeStart = null;
                 TimeSpan? rangeEnd = null;
                 if (timeCol >= 0)
@@ -313,6 +318,21 @@ public static class TimetableImporter
                 }
                 if (rangeStart is null && startCol >= 0) rangeStart = ParseSingleTime(Cell(row, startCol));
                 if (rangeEnd is null && endCol >= 0) rangeEnd = ParseSingleTime(Cell(row, endCol));
+
+                // v1.4.0：可选“周次/周类型/单双周”列；识别不了按通用并给 warning
+                var columnWeeks = WeekType.All;
+                if (weeksCol >= 0)
+                {
+                    var weeksText = Cell(row, weeksCol);
+                    if (!TryParseWeekTypeText(weeksText, out columnWeeks) && !string.IsNullOrWhiteSpace(weeksText))
+                    {
+                        columnWeeks = WeekType.All;
+                        grid.Warn($"第 {r + 1} 行“周次”值“{Clean(weeksText)}”无法识别，已按通用处理。");
+                    }
+                }
+                var weeks = MergeWeeks(columnWeeks, suffixWeeks, out var weekConflict);
+                if (weekConflict)
+                    grid.Warn($"第 {r + 1} 行课程“{Clean(rawCourse)}”的周次列与 (单)/(双) 后缀不一致，已按周次列处理。");
 
                 if (course.Length > 0 && ContainsBreakKeyword(course))
                 {
@@ -356,7 +376,7 @@ public static class TimetableImporter
                     End = rangeEnd,
                     Section = DetectSection(periodText)
                 });
-                grid.Entries.Add(new EntryDraft { Day = day.Value, PeriodIndex = index.Value, Course = course });
+                grid.Entries.Add(new EntryDraft { Day = day.Value, PeriodIndex = index.Value, Course = course, Weeks = weeks });
                 dataRows++;
             }
 
@@ -472,7 +492,7 @@ public static class TimetableImporter
 
             foreach (var (col, day) in dayCols.OrderBy(kv => kv.Key))
             {
-                var cell = CourseText(Cell(row, col));
+                var cell = ParseCourseCell(Cell(row, col), out var cellWeeks);
                 if (cell.Length == 0 || IsIgnorableCourse(cell)) continue;
                 if (ContainsBreakKeyword(cell))
                 {
@@ -485,7 +505,7 @@ public static class TimetableImporter
                     });
                     continue;
                 }
-                grid.Entries.Add(new EntryDraft { Day = day, PeriodIndex = index.Value, Course = cell });
+                grid.Entries.Add(new EntryDraft { Day = day, PeriodIndex = index.Value, Course = cell, Weeks = cellWeeks });
                 dataRows++;
             }
         }
@@ -635,14 +655,20 @@ public static class TimetableImporter
                 for (var i = 0; i < periodCols.Count; i++)
                 {
                     var col = periodCols[i].Col;
-                    var cell = CourseText(Cell(row, col));
+                    var cell = ParseCourseCell(Cell(row, col), out var cellWeeks);
                     if (cell.Length == 0 || IsIgnorableCourse(cell)) continue;
                     if (ContainsBreakKeyword(cell))
                     {
                         grid.Breaks.Add(new BreakDraft { Name = BreakName(cell), AfterPeriodIndex = periodsByCol[col] });
                         continue;
                     }
-                    grid.Entries.Add(new EntryDraft { Day = day, PeriodIndex = periodsByCol[col], Course = cell });
+                    grid.Entries.Add(new EntryDraft
+                    {
+                        Day = day,
+                        PeriodIndex = periodsByCol[col],
+                        Course = cell,
+                        Weeks = cellWeeks
+                    });
                     dataRows++;
                 }
             }
@@ -778,7 +804,7 @@ public static class TimetableImporter
             warnings.Add($"第 {i + 1} 节与第 {i + 2} 节之间间隔 {(int)gap.TotalMinutes} 分钟，已自动识别为“{name}”（{FormatTime(gapStart)}-{FormatTime(gapEnd)}），可在“课堂时段设置”中修改。");
         }
 
-        // ---- 5. 课程 ----
+        // ---- 5. 课程（v1.4.0：保留单/双周标记；同一格同周类型只保留最后一条）----
         var days = new Dictionary<DayOfWeek, List<TimetableEntry>>();
         foreach (var group in grid.Entries.GroupBy(e => e.Day))
         {
@@ -787,14 +813,18 @@ public static class TimetableImporter
             {
                 if (!indexMap.TryGetValue(entry.PeriodIndex, out var newIndex)) continue;
                 if (string.IsNullOrWhiteSpace(entry.Course)) continue;
-                var existing = list.FirstOrDefault(e => e.PeriodIndex == newIndex);
+                var weeks = entry.Weeks is WeekType.All or WeekType.Odd or WeekType.Even ? entry.Weeks : WeekType.All;
+                var existing = list.FirstOrDefault(e => e.PeriodIndex == newIndex && e.Weeks == weeks);
                 if (existing is null)
-                    list.Add(new TimetableEntry { PeriodIndex = newIndex, Course = entry.Course.Trim() });
+                    list.Add(new TimetableEntry { PeriodIndex = newIndex, Course = entry.Course.Trim(), Weeks = weeks });
                 else if (string.IsNullOrWhiteSpace(existing.Course))
                     existing.Course = entry.Course.Trim();
             }
             if (list.Count > 0)
-                days[group.Key] = list.OrderBy(e => e.PeriodIndex).ToList();
+            {
+                TimetableParityEditor.Sort(list);
+                days[group.Key] = list;
+            }
         }
 
         if (days.Count == 0)
@@ -816,7 +846,7 @@ public static class TimetableImporter
 
         var timetable = new WeekTimetable
         {
-            SchemaVersion = 1,
+            SchemaVersion = 2,
             UpdatedAt = DateTime.Now,
             Periods = periods.OrderBy(p => p.Start).ThenBy(p => p.Index).ToList(),
             Breaks = breaks.OrderBy(b => b.Start).ToList(),
@@ -830,9 +860,13 @@ public static class TimetableImporter
                        + timetable.Periods.Count
                        + timetable.Breaks.Count * 2;
 
+        // v1.4.0：预览统计 通用/单周/双周 节数
+        var (allCount, oddCount, evenCount) = TimetableParityEditor.CountByWeekType(timetable);
+
         var description = new StringBuilder(formatDescription);
         description.Append($"，共 {timetable.Periods.Count} 节课（{timetable.Periods[0].TimeText} ~ {timetable.Periods[^1].TimeText}）");
-        description.Append($"，{timetable.Days.Count} 天 {timetable.Days.Values.Sum(d => d.Count)} 门课");
+        description.Append($"，{timetable.Days.Count} 天 {allCount + oddCount + evenCount} 门课");
+        description.Append($"（通用 {allCount} 节、单周 {oddCount} 节、双周 {evenCount} 节）");
         if (timetable.Breaks.Count > 0)
             description.Append($"，{timetable.Breaks.Count} 个课间/午休（{string.Join("，", timetable.Breaks.Select(b => $"{b.Name} {b.TimeText}"))}）");
         result.FormatDescription = description.ToString();
@@ -1029,6 +1063,88 @@ public static class TimetableImporter
 
     private static bool IsTimeHeader(string header)
         => (header.Contains("时间") || header.Contains("时段")) && !header.Contains("开始") && !header.Contains("结束");
+
+    /// <summary>v1.4.0：可选“周次 / 周类型 / 单双周”列。</summary>
+    private static bool IsWeeksHeader(string header)
+    {
+        var h = header.Replace(" ", "");
+        return h.Contains("周次") || h.Contains("周类型") || h.Contains("单双周") || h is "单双" or "周别";
+    }
+
+    /// <summary>
+    /// v1.4.0：解析周类型文本（通用/全部/单/单周/双/双周/all/odd/even…）。
+    /// 空文本按通用处理并返回 true。
+    /// </summary>
+    private static bool TryParseWeekTypeText(string? text, out WeekType weeks)
+    {
+        weeks = WeekType.All;
+        var t = Clean(text).Replace(" ", "").Trim('（', '）', '(', ')', '[', ']', '【', '】');
+        if (t.Length == 0) return true;
+        switch (t.ToLowerInvariant())
+        {
+            case "通用":
+            case "全部":
+            case "都":
+            case "全":
+            case "通用周":
+            case "每周":
+            case "all":
+            case "common":
+                weeks = WeekType.All;
+                return true;
+            case "单":
+            case "单周":
+            case "奇":
+            case "奇数":
+            case "奇数周":
+            case "odd":
+                weeks = WeekType.Odd;
+                return true;
+            case "双":
+            case "双周":
+            case "偶":
+            case "偶数":
+            case "偶数周":
+            case "even":
+                weeks = WeekType.Even;
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// v1.4.0：解析课程单元格，识别末尾的 (单)/(双)/[单]/[双] 等周类型后缀。
+    /// 无后缀 → 通用；返回去除后缀后的课程名。
+    /// </summary>
+    private static string ParseCourseCell(string? raw, out WeekType weeks)
+    {
+        weeks = WeekType.All;
+        var text = CourseText(raw);
+        if (text.Length == 0) return "";
+
+        var match = Regex.Match(text,
+            @"(?:[（(\[【]\s*(单周|双周|单|双|奇数周|偶数周|odd|even|all)\s*[）)\]】])\s*$",
+            RegexOptions.IgnoreCase);
+        if (!match.Success) return text;
+
+        var token = match.Groups[1].Value;
+        if (!TryParseWeekTypeText(token, out weeks)) weeks = WeekType.All;
+        var stripped = text[..match.Index].Trim();
+        if (stripped.Length == 0) return ""; // 只有“(单)”没有课程名，按空课程处理
+        return stripped.Length > 40 ? stripped[..40] + "…" : stripped;
+    }
+
+    /// <summary>列方式与单元格后缀同时出现：优先列方式（可识别值），冲突时给 warning。</summary>
+    private static WeekType MergeWeeks(WeekType columnWeeks, WeekType suffixWeeks, out bool conflict)
+    {
+        conflict = false;
+        if (suffixWeeks == WeekType.All) return columnWeeks;
+        if (columnWeeks == WeekType.All) return suffixWeeks;
+        if (columnWeeks == suffixWeeks) return columnWeeks;
+        conflict = true;
+        return columnWeeks;
+    }
 
     private static bool ContainsBreakKeyword(string text)
     {
