@@ -88,7 +88,7 @@ public partial class PetWindow : Window
     private IReadOnlyList<DutyTaskLine> _topDutyLines = Array.Empty<DutyTaskLine>();
 
     // v1.5.0：白底卡片主题 / 课表拖动 / 上课专注模式
-    private double _lastPanelDesignWidth = 196;
+    private double _lastPanelDesignWidth = 160;
     private bool _panelWhiteCard = true;
     private DropShadowEffect? _panelCardShadow;
     private SolidColorBrush _panelStrong = FrozenBrush("#111827");

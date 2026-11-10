@@ -2,7 +2,8 @@
     [Parameter(Mandatory = $true)][string]$Title,
     [Parameter(Mandatory = $true)][string]$Out,
     [int]$Inset = 8,
-    [string]$ProcessName = "Banji"
+    [string]$ProcessName = "Banji",
+    [string]$ProcessPathLike = ""
 )
 
 # 用 PrintWindow 直接抓“窗口自身的内容”，不依赖屏幕截图/前台激活：
@@ -30,7 +31,7 @@ public static class PrintCap {
     [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr hdc, uint flags);
     [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
 
-    public static IntPtr Find(string title, string processName, out string foundTitle) {
+    public static IntPtr Find(string title, string processName, string pathLike, out string foundTitle) {
         IntPtr found = IntPtr.Zero;
         string ft = "";
         EnumWindows((h, l) => {
@@ -44,6 +45,10 @@ public static class PrintCap {
                 try {
                     var p = System.Diagnostics.Process.GetProcessById((int)pid);
                     if (!string.Equals(p.ProcessName, processName, StringComparison.OrdinalIgnoreCase)) return true;
+                    if (!string.IsNullOrEmpty(pathLike)) {
+                        var exePath = p.MainModule.FileName;
+                        if (exePath.IndexOf(pathLike, StringComparison.OrdinalIgnoreCase) < 0) return true;
+                    }
                 } catch { return true; }
             }
             found = h; ft = t; return false;
@@ -54,7 +59,7 @@ public static class PrintCap {
 }
 "@
 $foundTitle = ""
-$hwnd = [PrintCap]::Find($Title, $ProcessName, [ref]$foundTitle)
+$hwnd = [PrintCap]::Find($Title, $ProcessName, $ProcessPathLike, [ref]$foundTitle)
 if ($hwnd -eq [IntPtr]::Zero) { throw "找不到班机窗口: $Title" }
 $rect = New-Object PrintCap+RECT
 [PrintCap]::GetWindowRect($hwnd, [ref]$rect) | Out-Null
