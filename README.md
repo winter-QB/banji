@@ -1,4 +1,4 @@
-﻿# 班机（Banji）
+# 班机（Banji）
 
 > **一款永远置顶在屏幕边上的 Windows 课堂管理桌面宠物。**
 > 它帮你盯课表、报上下课、公平抽签、算计时、分组、记积分、排值日值周、倒计时考试，偶尔也吐个槽。
@@ -13,6 +13,8 @@
 
 
 > **v1.5.0 更新**：隐藏宠物后改成**吸附屏幕边缘的蓝色把手**（精准贴边，点一下恢复）；**课表可以直接用鼠标拖动**（去掉原来的两个位置滑块）；完整课表 / 折叠课表统一成**白底圆角矩形**，功能区也改成**白底**；修复**左侧小三角展开功能区失效**；新增**「上课专注」**两个默认开启的开关 —— 上课后 30 秒自动隐藏宠物（连蓝色把手一起隐藏）、下课前 30 秒恢复；上课期间课表自动**去白底、折叠、降低不透明度**。
+
+> **v1.5.2 修复**：白底卡片宽度改为**逐行实时测量**——内容宽度取所有行中“最右侧一个字”的最大值，四边内边距统一为 14 DIP（左右、上下等宽），不会再出现右侧大片空白；折叠卡、放学后展示、值日行同样生效。
 
 > **v1.5.1 修复**：课表白底卡片改为**内容自适应宽度**（最小 150、最大 196 DIP），去掉右侧大片空白；折叠卡、放学后展示同样生效。功能与 v1.5.0 相同。
 
@@ -1026,7 +1028,7 @@ banji\
 ├─ .dotnet\                  仓库内置的 .NET 8 SDK（统一使用它构建）
 ├─ docs\                     设计文档（值周值日与单双周设计-v1.4.md 等）
 ├─ ARCHITECTURE.md           团队内部架构契约
-├─ RELEASE_NOTES-v1.5.1.md   当前版本发布说明（GitHub Release 草案）
+├─ RELEASE_NOTES-v1.5.2.md   当前版本发布说明（GitHub Release 草案）
 └─ README.md
 ```
 
@@ -1108,14 +1110,14 @@ powershell -ExecutionPolicy Bypass -File build\verify-ai-release.ps1
 powershell -ExecutionPolicy Bypass -File build\make-desktop-release.ps1
 ```
 
-会在桌面生成 **`班机 v1.5.1 Release`** 文件夹；v1.4 起发布资产使用**英文文件名**（可直接传 GitHub Release / 网盘），内含：
+会在桌面生成 **`班机 v1.5.2 Release`** 文件夹；v1.4 起发布资产使用**英文文件名**（可直接传 GitHub Release / 网盘），内含：
 
 ```
-班机 v1.5.1 Release\
-├─ Banji-Setup-1.5.1.exe
-├─ Banji-Portable-1.5.1.zip
+班机 v1.5.2 Release\
+├─ Banji-Setup-1.5.2.exe
+├─ Banji-Portable-1.5.2.zip
 ├─ README.md
-├─ RELEASE_NOTES-v1.5.1.md
+├─ RELEASE_NOTES-v1.5.2.md
 ├─ LICENSE.txt                （鸿蒙字体许可证）
 ├─ SHA256SUMS.txt             （所有文件的 SHA-256 校验）
 ├─ VERSION.txt                （版本 / 大小 / 安装提示）
@@ -1151,7 +1153,7 @@ python build\gen_templates.py
 - 预发布版本用后缀 `-rc.N`（例如 `v1.6.0-rc.1`），正式发布时去掉后缀；
 - **不使用「SP1」「增强版」之类的后缀**，补丁修复就是 PATCH +1；
 - 程序、安装器、构建报告与 README 的版本号保持一致（`build/build.ps1` 会自动从主工程 csproj 读取并同步给安装器与构建报告）；
-- 当前版本：**v1.5.1**。
+- 当前版本：**v1.5.2**。
 
 ---
 

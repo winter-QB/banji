@@ -58,10 +58,10 @@
             <Grid.LayoutTransform>
                 <ScaleTransform x:Name="PanelScaleTransform" ScaleX="1" ScaleY="1" />
             </Grid.LayoutTransform>
-            <Border x:Name="PanelCard" CornerRadius="14" MinWidth="150" MaxWidth="196" Background="#F5FFFFFF" BorderBrush="#14000000"
-                    BorderThickness="1" Padding="14,11,14,12" Cursor="SizeAll" ToolTip="按住空白处可拖动课表">
+            <Border x:Name="PanelCard" CornerRadius="14" MinWidth="120" MaxWidth="196" Background="#F5FFFFFF" BorderBrush="#14000000"
+                    BorderThickness="1" Padding="14,14,14,14" Cursor="SizeAll" ToolTip="按住空白处可拖动课表">
                 <Grid>
-                    <StackPanel x:Name="PanelStack" MinWidth="150">
+                    <StackPanel x:Name="PanelStack" MinWidth="120">
                         <!-- v1.4.0：面板顶部周次（第 X 周 · 单/双周） -->
                         <pet:HaloTextLine x:Name="WeekHeaderLine" Height="15" Margin="0,0,0,4" Visibility="Collapsed" />
                         <!-- v1.4.0：黑板类岗位置顶（展开态常驻在课表最顶端） -->
@@ -81,7 +81,7 @@
                     </StackPanel>
 
                     <!-- v1.5.0 折叠态内容（不再自带卡片背景，统一使用外层 PanelCard） -->
-                    <StackPanel x:Name="FoldedCard" MinWidth="150" Visibility="Collapsed" Background="Transparent"
+                    <StackPanel x:Name="FoldedCard" MinWidth="120" Visibility="Collapsed" Background="Transparent"
                                 Cursor="Hand" MouseLeftButtonUp="OnFoldedCardClick" ToolTip="点击展开课表">
                         <!-- 黑板类岗位置顶（折叠态压成一行，如“擦黑板：张三”） -->
                         <TextBlock x:Name="FoldedTopTask" Text="" Margin="0,0,0,3" Visibility="Collapsed"
