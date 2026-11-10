@@ -1,7 +1,7 @@
 ﻿#requires -version 5.1
 <#
 .SYNOPSIS
-    生成桌面发布文件夹：`班机 vX.Y.Z Release`（英文资产名：安装程序 / 便携版 / README / 发布说明 / LICENSE / SHA256SUMS / 截图）。
+    生成桌面统一发布目录 `Desktop\班机Releases\班机 vX.Y.Z Release`（英文资产名：安装程序 / 便携版 / README / 发布说明 / LICENSE / SHA256SUMS / 截图）。
 
 .DESCRIPTION
     先运行 build\build.ps1 生成 dist 产物，再运行本脚本。版本号自动从 src\Banji\Banji.csproj 读取。
@@ -15,7 +15,7 @@
       powershell -ExecutionPolicy Bypass -File build\make-desktop-release.ps1 -ChineseNames
 
     输出目录（默认桌面）：
-      班机 v1.5.0 Release\
+      班机Releases\班机 v1.5.0 Release\
       ├─ Banji-Setup-1.5.0.exe
       ├─ Banji-Portable-1.5.0.zip
       ├─ README.md
@@ -44,7 +44,9 @@ if ($versionNode -and $versionNode.Version) { $version = [string]$versionNode.Ve
 if ([string]::IsNullOrWhiteSpace($OutDir)) {
     $desktop = [Environment]::GetFolderPath("Desktop")
     if ([string]::IsNullOrWhiteSpace($desktop)) { throw "无法定位桌面目录，请用 -OutDir 指定输出目录。" }
-    $OutDir = Join-Path $desktop ("班机 v{0} Release" -f $version)
+    $releaseRoot = Join-Path $desktop "班机Releases"
+if (-not (Test-Path -LiteralPath $releaseRoot)) { New-Item -ItemType Directory -Path $releaseRoot -Force | Out-Null }
+$OutDir = Join-Path $releaseRoot ("班机 v{0} Release" -f $version)
 }
 $OutDir = [System.IO.Path]::GetFullPath($OutDir)
 
