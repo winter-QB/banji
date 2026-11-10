@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Threading;
 using Banji.Core.Abstractions;
 using Banji.Core.Boot;
@@ -160,6 +160,13 @@ public partial class App : Application
             case "unfold-timetable":
                 svc.PetWindow?.UnfoldTimetable();
                 Log.Info("QA：课表已展开");
+                break;
+            case "functions":
+                svc.PetWindow?.ToggleFunctions();
+                Log.Info("QA：已切换功能区展开状态");
+                break;
+            case "focus-mode":
+                Log.Info($"QA：课堂专注模式 = {svc.PetWindow?.IsClassFocusActive}，功能区展开 = {svc.PetWindow?.IsFunctionsExpanded}");
                 break;
             case "duty":
                 svc.ShowDutyWindow();
@@ -333,6 +340,8 @@ public partial class App : Application
                                 case "shownum": x.ShowWeekNumberOnPet = settingValue > 0.5; break;
                                 case "noticeparity": x.NoticeIncludeWeekParity = settingValue > 0.5; break;
                                 case "dutyonpet": x.ShowDutyOnPet = settingValue > 0.5; break;
+                                case "autohidepet": x.AutoHidePetDuringClass = settingValue > 0.5; break;
+                                case "autosimplify": x.AutoSimplifyTimetableDuringClass = settingValue > 0.5; break;
                             }
                         });
                         svc.Clock.Refresh();

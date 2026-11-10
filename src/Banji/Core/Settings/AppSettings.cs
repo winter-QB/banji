@@ -77,6 +77,12 @@ public sealed class AppSettings
     public bool ShowDutyOnPet { get; set; } = true;
     /// <summary>值周/值日首次配置向导是否已完成（未完成时首次打开会强制引导设置开学第一周）。</summary>
     public bool DutySetupCompleted { get; set; } = false;
+
+    // ---------------- v1.5.0：上课专注模式 ----------------
+    /// <summary>上课后 30 秒至下课前 30 秒自动隐藏宠物形象（连侧边把手一起隐藏）。</summary>
+    public bool AutoHidePetDuringClass { get; set; } = true;
+    /// <summary>上课后 30 秒至下课前 30 秒自动去掉课表白底、折叠课表并降低不透明度。</summary>
+    public bool AutoSimplifyTimetableDuringClass { get; set; } = true;
     /// <summary>宠物距屏幕右边缘的偏移（px，缩放前基准单位）。</summary>
     public double PetRightMargin { get; set; } = 0;
     /// <summary>宠物距工作区底部的偏移（px）。</summary>

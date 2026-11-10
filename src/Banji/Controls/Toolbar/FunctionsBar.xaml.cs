@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using Banji.Core.Boot;
@@ -463,3 +463,5 @@ public partial class FunctionsBar : UserControl
         UpdateLayout();
     });
 }
+
+

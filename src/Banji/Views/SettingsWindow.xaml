@@ -1,4 +1,4 @@
-﻿<Window x:Class="Banji.Views.SettingsWindow"
+<Window x:Class="Banji.Views.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="设置 - 班机"
@@ -234,7 +234,7 @@
                     <ListBoxItem Content="备份与恢复" Tag="backup" />
                 </ListBox>
 
-                <TextBlock DockPanel.Dock="Bottom" Text="班机 v1.4.1 · 设置会自动保存"
+                <TextBlock DockPanel.Dock="Bottom" Text="班机 v1.5.0 · 设置会自动保存"
                            FontFamily="{StaticResource Font.Regular}" FontSize="11"
                            Foreground="{StaticResource Brush.TextTertiary}" Margin="8,0,0,0" />
             </DockPanel>

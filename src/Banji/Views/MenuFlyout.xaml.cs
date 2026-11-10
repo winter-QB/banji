@@ -221,10 +221,7 @@ public partial class MenuFlyout : Window
             PetScaleValue.Text = settings.PetScale.ToString("0.00") + "×";
             PanelScaleSlider.Value = Math.Clamp(settings.PanelScale, PanelScaleSlider.Minimum, PanelScaleSlider.Maximum);
             PanelScaleValue.Text = settings.PanelScale.ToString("0.00") + "×";
-            PanelOffsetXSlider.Value = Math.Clamp(settings.PanelOffsetX, PanelOffsetXSlider.Minimum, PanelOffsetXSlider.Maximum);
-            PanelOffsetXValue.Text = FormatOffset(settings.PanelOffsetX);
-            PanelOffsetYSlider.Value = Math.Clamp(settings.PanelOffsetY, PanelOffsetYSlider.Minimum, PanelOffsetYSlider.Maximum);
-            PanelOffsetYValue.Text = FormatOffset(settings.PanelOffsetY);
+
             ButtonOpacitySlider.Value = settings.Buttons.IdleOpacityPercent;
             ButtonOpacityValue.Text = $"{settings.Buttons.IdleOpacityPercent}%";
             ToggleTimetableText.Text = settings.ShowTimetablePanel ? "隐藏课表" : "显示课表";
@@ -275,25 +272,6 @@ public partial class MenuFlyout : Window
             value => PanelScaleValue.Text = value.ToString("0.00") + "×");
     }
 
-    private void OnPanelOffsetXChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_syncing) return;
-        var rounded = Math.Round(e.NewValue);
-        ApplyLayoutSetting(
-            value => AppServices.Current.Settings.Update(s => s.PanelOffsetX = Math.Round(value)),
-            rounded,
-            _ => PanelOffsetXValue.Text = FormatOffset(rounded));
-    }
-
-    private void OnPanelOffsetYChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
-    {
-        if (_syncing) return;
-        var rounded = Math.Round(e.NewValue);
-        ApplyLayoutSetting(
-            value => AppServices.Current.Settings.Update(s => s.PanelOffsetY = Math.Round(value)),
-            rounded,
-            _ => PanelOffsetYValue.Text = FormatOffset(rounded));
-    }
 
     /// <summary>滑块实时生效：写设置 + 更新数值显示（设置变更会驱动 PetWindow 重新布局）。</summary>
     private void ApplyLayoutSetting(Action<double> apply, double value, Action<double> updateLabel)
@@ -558,6 +536,7 @@ public partial class MenuFlyout : Window
         }
     }
 }
+
 
 
 

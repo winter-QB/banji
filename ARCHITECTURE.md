@@ -289,3 +289,21 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
 | `ai-chat` | `Core/Ai/**`（系统提示词注入当前值日/单双周上下文）、`Tests/Ai*` |
 | `packaging` | v1.4.0 README/RELEASE_NOTES/构建/桌面发布夹 |
 禁止改共享文件（Models/Abstractions/Settings/Boot/App.xaml*/csproj/Resources/别人的窗口）；需要改先找 Lead。
+
+## 14. v1.5.0 契约（2026-11-10）
+
+用户要求：① 修复隐藏宠物后蓝色把手不能精准吸附屏幕边缘；② 课表与宠物彻底分开（各自折叠/隐藏，课表改用鼠标拖动、去掉两个位置滑块）；③ 功能区按钮深色壁纸不可见 → 白底；④ 修复左侧三角展开功能区失效；⑤ 完整课表/折叠课表等所有形式统一白底圆角矩形；⑥ 新增两个默认开启的“上课专注”选项：上课后 30 秒至下课前 30 秒自动隐藏宠物（连把手都不留）、自动去掉课表白底+折叠+降低不透明度。
+
+- **Lead 决策（省改动）**：不新建独立窗口，仍在 PetWindow 内实现“视觉/交互分离”：课表可像宠物一样直接拖动（拖动改写持久化偏移），宠物与课表可分别折叠/隐藏；上课专注模式下宠物可视元素（含把手/功能区）整体隐藏，课表只剩简化形态。
+- `AppSettings` 新增：`AutoHidePetDuringClass`（默认 true）、`AutoSimplifyTimetableDuringClass`（默认 true）。
+- “上课专注窗口”定义（纯函数，可测）：`Phase==InClass && now >= Current.Start+30s && now <= Current.End-30s`。
+- 课表位置仍持久化在 `PanelOffsetX/PanelOffsetY`（拖动写入，UI 不再提供两个滑块）；不再新增字段。
+- 版本：**v1.5.0**（MINOR：交互改进 + 新开关）。
+
+### 文件作用域
+| 负责人 | 文件 |
+|---|---|
+| `pet-ui` | `Views/PetWindow.*`、`Views/MenuFlyout.*`、`Controls/Pet/**`、`Controls/Toolbar/FunctionsBar*`（白底容器）、`Tests/PetUiV15*` |
+| `features-ui` | `Views/SettingsWindow.*`（两个专注开关、去掉课表位置滑块、文案）、`Tests/SettingsV15*` |
+| `packaging` | v1.5.0 README/RELEASE_NOTES/构建/桌面发布夹（等信号） |
+禁止改共享文件（Settings/Models/Abstractions/Boot/App.xaml*/csproj/Resources）；需要改先找 Lead。

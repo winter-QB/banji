@@ -3,7 +3,8 @@
     [ValidateSet("dark", "light")][string]$Mode = "dark",
     [int]$Padding = 60,
     [int]$BackdropExtra = 240,
-    [string[]]$ExtraTitle = @()
+    [string[]]$ExtraTitle = @(),
+    [string]$ProcessName = ""
 )
 
 # 宠物窗是透明窗口：在宠物窗（及可选的额外窗口，如气泡/菜单）背后放一个“只覆盖该区域”的中性渐变小窗，
@@ -21,16 +22,27 @@ public static class PetCap2 {
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder sb, int max);
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
+    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     public delegate bool EnumProc(IntPtr h, IntPtr l);
     public struct RECT { public int Left, Top, Right, Bottom; }
-    public static IntPtr Find(string title) {
+    /// <summary>按标题找窗口；ProcessName 非空时只匹配该进程名（避免命中用户正在运行的正式版班机）。</summary>
+    public static IntPtr Find(string title, string processName = "") {
         IntPtr found = IntPtr.Zero;
         EnumWindows((h, l) => {
             if (!IsWindowVisible(h)) return true;
             var sb = new StringBuilder(512);
             GetWindowText(h, sb, 512);
-            if (sb.ToString() == title) { found = h; return false; }
-            return true;
+            if (sb.ToString() != title) return true;
+            if (!string.IsNullOrEmpty(processName)) {
+                uint pid;
+                GetWindowThreadProcessId(h, out pid);
+                if (pid == 0) return true;
+                try {
+                    var p = System.Diagnostics.Process.GetProcessById((int)pid);
+                    if (!string.Equals(p.ProcessName, processName, StringComparison.OrdinalIgnoreCase)) return true;
+                } catch { return true; }
+            }
+            found = h; return false;
         }, IntPtr.Zero);
         return found;
     }
@@ -39,7 +51,7 @@ public static class PetCap2 {
 [PetCap2]::SetProcessDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
 
 $rects = @()
-$petHwnd = [PetCap2]::Find("班机")
+$petHwnd = [PetCap2]::Find("班机", $ProcessName)
 if ($petHwnd -eq [IntPtr]::Zero) { throw "找不到班机宠物窗（Title=班机）" }
 $pr = New-Object PetCap2+RECT
 [PetCap2]::GetWindowRect($petHwnd, [ref]$pr) | Out-Null
@@ -47,7 +59,7 @@ $rects += $pr
 
 $extraHwnds = @()
 foreach ($t in $ExtraTitle) {
-    $h = [PetCap2]::Find($t)
+    $h = [PetCap2]::Find($t, $ProcessName)
     if ($h -eq [IntPtr]::Zero) { continue }
     $extraHwnds += $h
     $r = New-Object PetCap2+RECT
@@ -127,4 +139,5 @@ try {
 finally {
     if (-not $backdrop.HasExited) { Stop-Process -Id $backdrop.Id -Force -ErrorAction SilentlyContinue }
 }
+
 

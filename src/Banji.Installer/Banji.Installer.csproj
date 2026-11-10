@@ -9,9 +9,9 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>BanjiInstaller</AssemblyName>
     <RootNamespace>Banji.Installer</RootNamespace>
-    <Version>1.4.1</Version>
-    <FileVersion>1.4.1.0</FileVersion>
-    <AssemblyVersion>1.4.1.0</AssemblyVersion>
+    <Version>1.5.0</Version>
+    <FileVersion>1.5.0.0</FileVersion>
+    <AssemblyVersion>1.5.0.0</AssemblyVersion>
     <Product>班机</Product>
     <AssemblyTitle>班机安装程序</AssemblyTitle>
     <Description>班机 — 课堂管理桌面宠物 安装程序</Description>

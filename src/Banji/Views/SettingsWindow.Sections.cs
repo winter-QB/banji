@@ -300,8 +300,9 @@ public partial class SettingsWindow
     private FrameworkElement BuildPetSection()
     {
         var s = Settings.Current;
-        return SectionFrame("宠物", "宠物形象大小、课表大小与位置分别可调；颜色、动画与陪伴养成。v1.2 起“整体缩放”已拆成“宠物形象大小”和“课表大小”。",
+        return SectionFrame("宠物", "宠物形象大小、课表大小、颜色、动画与陪伴养成。课表位置改为直接用鼠标拖动（自动保存）；新增“上课专注”自动隐藏/简化。",
             BuildScaleAndPositionCard(s),
+            BuildClassFocusCard(s),
             Card(
                 ColorRow("身体颜色", "默认雾蓝色 #8FB6F2（第二轮：方形、扁扁的小方块）。", s.Pet.BodyColor, "#8FB6F2",
                     v => Settings.Update(x => x.Pet.BodyColor = v)),
@@ -325,7 +326,7 @@ public partial class SettingsWindow
             BuildGrowthCard());
     }
 
-    /// <summary>v1.2.0：宠物形象大小 / 课表大小 / 课表左右上下位置 + 恢复默认。</summary>
+    /// <summary>v1.2.0：宠物形象大小 / 课表大小 + 恢复默认；v1.5.0 移除课表位置滑块（改为鼠标拖动）。</summary>
     private FrameworkElement BuildScaleAndPositionCard(AppSettings s)
     {
         var restoreButton = new Button
@@ -338,7 +339,7 @@ public partial class SettingsWindow
 
         return Card(
             ScaleInputRow("宠物形象大小",
-                "只影响宠物本体（滑块 0.2~5，也可直接输入数值）。以前是整体缩放，v1.2 起与“课表大小”分开调节。",
+                "只影响宠物本体（滑块 0.2~5，也可直接输入数值）。v1.2 起与“课表大小”分开调节。",
                 0.2, 5.0, s.PetScale, 0.05,
                 v => Settings.Update(x => x.PetScale = Math.Round(v, 3))),
             Divider(),
@@ -347,24 +348,46 @@ public partial class SettingsWindow
                 0.4, 4.0, s.PanelScale, 0.05, v => $"{v:0.00}",
                 v => Settings.Update(x => x.PanelScale = Math.Round(v, 3))),
             Divider(),
-            SliderRow("课表左右位置",
-                "课表/信息面板相对默认位置的横向偏移（DIP），正数向右、负数向左。",
-                -300, 300, Math.Clamp(s.PanelOffsetX, -300, 300), 5, FormatOffset,
-                v => Settings.Update(x => x.PanelOffsetX = Math.Round(v))),
+            Row("课表位置",
+                "课表可以直接用鼠标拖动调整位置（自动保存），不再需要在设置里调数值。",
+                new TextBlock
+                {
+                    Text = "直接拖动课表即可移动，松手后自动记住位置",
+                    FontFamily = FontRegular,
+                    FontSize = 12.5,
+                    Foreground = BrandBrush,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 280,
+                    VerticalAlignment = VerticalAlignment.Center
+                }),
             Divider(),
-            SliderRow("课表上下位置",
-                "课表/信息面板相对默认位置的纵向偏移（DIP），正数向下、负数向上。",
-                -300, 300, Math.Clamp(s.PanelOffsetY, -300, 300), 5, FormatOffset,
-                v => Settings.Update(x => x.PanelOffsetY = Math.Round(v))),
-            Divider(),
-            Row("恢复默认", "宠物形象大小 = 1，课表大小 = 1，课表左右/上下位置 = 0。", restoreButton)
+            Row("恢复默认", "宠物形象大小 = 1，课表大小 = 1，课表位置 = 0（回到默认位置）。", restoreButton)
         );
     }
 
-    private static string FormatOffset(double value)
+    /// <summary>v1.5.0：上课专注（自动隐藏宠物 / 自动简化课表，默认开启）。</summary>
+    private FrameworkElement BuildClassFocusCard(AppSettings s)
     {
-        var px = (int)Math.Round(value);
-        return px > 0 ? $"+{px} px" : $"{px} px";
+        return Card(
+            SectionCardTitle("上课专注"),
+            Row("上课自动隐藏宠物",
+                "上课后 30 秒自动隐藏宠物，下课前 30 秒恢复；连侧边把手一起隐藏。默认开启，减少学生分心。",
+                Toggle(s.AutoHidePetDuringClass, v => Settings.Update(x => x.AutoHidePetDuringClass = v))),
+            Divider(),
+            Row("上课自动简化课表",
+                "上课期间自动去掉课表白底、折叠课表并降低不透明度。默认开启。",
+                Toggle(s.AutoSimplifyTimetableDuringClass, v => Settings.Update(x => x.AutoSimplifyTimetableDuringClass = v))),
+            Divider(),
+            FullRow("说明", null, new TextBlock
+            {
+                Text = "两个开关相互独立、默认都开启，只影响外观：不影响计时器/正计时、清醒一下、抽签结果与气泡提醒；" +
+                       "下课（含课间）会自动恢复。若暂时不需要，可在这里单独关闭。",
+                FontFamily = FontRegular,
+                FontSize = 11.5,
+                Foreground = TextTertiary,
+                TextWrapping = TextWrapping.Wrap,
+                LineHeight = 20
+            }));
     }
 
     private void OnRestoreScaleAndPosition()

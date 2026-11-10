@@ -53,22 +53,37 @@
          窗口尺寸由 code-behind 按两者包围盒计算，Canvas 负责绝对摆放。 -->
     <Canvas x:Name="RootCanvas" ClipToBounds="False">
 
-        <!-- ① 课表 + 常驻信息面板：纯文字悬浮（无卡片），缩放/偏移独立 -->
-        <Grid x:Name="PanelHost" Width="196" HorizontalAlignment="Left" VerticalAlignment="Top" Background="Transparent">
+        <!-- ① 课表 + 常驻信息面板：v1.5.0 统一为白底圆角卡片（专注简化态切换成透明 + 白色光晕文字） -->
+        <Grid x:Name="PanelHost" HorizontalAlignment="Left" VerticalAlignment="Top" Background="Transparent">
             <Grid.LayoutTransform>
                 <ScaleTransform x:Name="PanelScaleTransform" ScaleX="1" ScaleY="1" />
             </Grid.LayoutTransform>
-            <Grid>
-                <!-- v1.3.0 折叠态：只显示下节课时间+科目的简洁卡片（点击展开） -->
-                <Border x:Name="FoldedCard" Width="196" Visibility="Collapsed"
-                        CornerRadius="14" Background="#F2F7FDFF" BorderBrush="#CCFFFFFF" BorderThickness="1"
-                        Padding="12,9,12,10" Cursor="Hand" MouseLeftButtonUp="OnFoldedCardClick"
-                        ToolTip="点击展开课表">
-                    <Border.Effect>
-                        <DropShadowEffect Color="#16305C" BlurRadius="12" ShadowDepth="2" Direction="270" Opacity="0.22" />
-                    </Border.Effect>
-                    <StackPanel>
-                        <!-- v1.4.0：黑板类岗位置顶（折叠态压成一行，如“擦黑板：张三”） -->
+            <Border x:Name="PanelCard" CornerRadius="14" Background="#F5FFFFFF" BorderBrush="#14000000"
+                    BorderThickness="1" Padding="14,11,14,12" Cursor="SizeAll" ToolTip="按住空白处可拖动课表">
+                <Grid Width="196">
+                    <StackPanel x:Name="PanelStack" Width="196">
+                        <!-- v1.4.0：面板顶部周次（第 X 周 · 单/双周） -->
+                        <pet:HaloTextLine x:Name="WeekHeaderLine" Height="15" Margin="0,0,0,4" Visibility="Collapsed" />
+                        <!-- v1.4.0：黑板类岗位置顶（展开态常驻在课表最顶端） -->
+                        <pet:HaloTextStack x:Name="TopTaskBody" RowHeight="19" LineSpacing="0" Margin="0,0,0,4"
+                                           Visibility="Collapsed" />
+                        <StackPanel x:Name="TimetableSection">
+                            <pet:HaloTextLine x:Name="TimetableTitle" Height="16" Margin="0,0,0,5" />
+                            <pet:HaloTextStack x:Name="TimetableBody" RowHeight="21" LineSpacing="1" />
+                            <pet:HaloTextLine x:Name="TimetableEmpty" Height="18" Visibility="Collapsed" />
+                        </StackPanel>
+                        <!-- v1.4.0：值周/值日行（点击打开“值日与轮值”窗口） -->
+                        <Border x:Name="DutyLineHost" Background="Transparent" Margin="0,4,0,0" Visibility="Collapsed"
+                                Cursor="Hand" MouseLeftButtonUp="OnDutyLineClick" ToolTip="打开值日与轮值">
+                            <pet:HaloTextLine x:Name="DutyLine" Height="16" />
+                        </Border>
+                        <pet:HaloTextStack x:Name="InfoBody" LineSpacing="2" Margin="0,9,0,0" />
+                    </StackPanel>
+
+                    <!-- v1.5.0 折叠态内容（不再自带卡片背景，统一使用外层 PanelCard） -->
+                    <StackPanel x:Name="FoldedCard" Width="196" Visibility="Collapsed" Background="Transparent"
+                                Cursor="Hand" MouseLeftButtonUp="OnFoldedCardClick" ToolTip="点击展开课表">
+                        <!-- 黑板类岗位置顶（折叠态压成一行，如“擦黑板：张三”） -->
                         <TextBlock x:Name="FoldedTopTask" Text="" Margin="0,0,0,3" Visibility="Collapsed"
                                    FontFamily="{StaticResource Font.Medium}" FontSize="11"
                                    Foreground="#2F6BD8" TextTrimming="CharacterEllipsis" />
@@ -86,35 +101,15 @@
                         <TextBlock x:Name="FoldedSecondary" Text="" Margin="0,1,0,0" Visibility="Collapsed"
                                    FontFamily="{StaticResource Font.Light}" FontSize="10.5"
                                    Foreground="#6B7280" TextTrimming="CharacterEllipsis" />
-                        <!-- v1.4.0：值周/值日行（点击打开“值日与轮值”） -->
+                        <!-- 值周/值日行（点击打开“值日与轮值”） -->
                         <TextBlock x:Name="FoldedDuty" Text="" Margin="0,3,0,0" Visibility="Collapsed"
                                    FontFamily="{StaticResource Font.Light}" FontSize="10.5" Foreground="#4A6FA5"
                                    TextTrimming="CharacterEllipsis" Cursor="Hand"
                                    MouseLeftButtonUp="OnFoldedDutyClick" ToolTip="打开值日与轮值" />
                     </StackPanel>
-                </Border>
-
-                <StackPanel x:Name="PanelStack" Width="196" HorizontalAlignment="Right">
-                    <!-- v1.4.0：面板顶部周次（第 X 周 · 单/双周） -->
-                    <pet:HaloTextLine x:Name="WeekHeaderLine" Height="15" Margin="0,0,0,4" Visibility="Collapsed" />
-                    <!-- v1.4.0：黑板类岗位置顶（展开态常驻在课表最顶端） -->
-                    <pet:HaloTextStack x:Name="TopTaskBody" RowHeight="19" LineSpacing="0" Margin="0,0,0,4"
-                                       Visibility="Collapsed" />
-                    <StackPanel x:Name="TimetableSection">
-                        <pet:HaloTextLine x:Name="TimetableTitle" Height="16" Margin="0,0,0,5" />
-                        <pet:HaloTextStack x:Name="TimetableBody" RowHeight="21" LineSpacing="1" />
-                        <pet:HaloTextLine x:Name="TimetableEmpty" Height="18" Visibility="Collapsed" />
-                    </StackPanel>
-                    <!-- v1.4.0：值周/值日行（点击打开“值日与轮值”窗口） -->
-                    <Border x:Name="DutyLineHost" Background="Transparent" Margin="0,4,0,0" Visibility="Collapsed"
-                            Cursor="Hand" MouseLeftButtonUp="OnDutyLineClick" ToolTip="打开值日与轮值">
-                        <pet:HaloTextLine x:Name="DutyLine" Height="16" />
-                    </Border>
-                    <pet:HaloTextStack x:Name="InfoBody" LineSpacing="2" Margin="0,9,0,0" />
-                </StackPanel>
-            </Grid>
+                </Grid>
+            </Border>
         </Grid>
-
         <!-- ② 宠物群：宠物本体 + 头顶两个小三角 + 左下角功能区小三角（含展开的功能区），随 PetScale 缩放 -->
         <Grid x:Name="PetHost" Width="112" Height="134" HorizontalAlignment="Left" VerticalAlignment="Top">
             <Grid.LayoutTransform>
@@ -180,13 +175,14 @@
                 </Border>
             </Grid>
 
-            <!-- 向左展开的功能区：在宠物左侧；展开时 PetHost 宽度会从 112 变 282 -->
-            <Border x:Name="FunctionHost" Width="166" Visibility="Collapsed"
-                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,112,2" Padding="3">
+            <!-- 向左展开的功能区：在宠物左侧；展开时 PetHost 宽度会从 112 变 282。
+                 v1.5.0：白底容器放在 FunctionsBar 内部（避免外层 Border 影响其自适应测量）。 -->
+            <Border x:Name="FunctionHost" Width="176" Visibility="Collapsed"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,112,2">
                 <Border.RenderTransform>
                     <TranslateTransform x:Name="FunctionHostOffset" X="0" />
                 </Border.RenderTransform>
-                <toolbar:FunctionsBar />
+                <toolbar:FunctionsBar x:Name="FunctionsBarControl" />
             </Border>
         </Grid>
 
@@ -213,6 +209,9 @@
         </Grid>
     </Canvas>
 </Window>
+
+
+
 
 
 

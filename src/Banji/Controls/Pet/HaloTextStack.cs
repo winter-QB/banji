@@ -31,6 +31,7 @@ public sealed class HaloTextStack : Grid
     private readonly List<BlurEffect> _wideEffects = new();
     private double _haloRadius = WideHaloRadius;
     private double _lineSpacing = 1;
+    private bool _haloEnabled = true;
 
     public HaloTextStack()
     {
@@ -55,6 +56,20 @@ public sealed class HaloTextStack : Grid
 
         _frontStack = new StackPanel { IsHitTestVisible = false };
         Children.Add(_frontStack);
+    }
+
+    /// <summary>
+    /// v1.5.0：白底卡片上改用深色文字时关闭光晕/描边层（只保留正文字）。
+    /// </summary>
+    public bool HaloEnabled
+    {
+        get => _haloEnabled;
+        set
+        {
+            _haloEnabled = value;
+            _wideStack.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var stack in _outlineStacks) stack.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        }
     }
 
     /// <summary>远层光晕高斯模糊半径（建议 14~22）。</summary>
@@ -179,4 +194,5 @@ public sealed class HaloTextStack : Grid
         if (RowHeight > 0) block.Height = RowHeight;
     }
 }
+
 

@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using Banji.Controls.Pet;
 using Banji.Core.Abstractions;
@@ -86,6 +87,26 @@ public partial class PetWindow : Window
     private string _dutySummaryText = "";
     private IReadOnlyList<DutyTaskLine> _topDutyLines = Array.Empty<DutyTaskLine>();
 
+    // v1.5.0：白底卡片主题 / 课表拖动 / 上课专注模式
+    private double _lastPanelDesignWidth = 196;
+    private bool _panelWhiteCard = true;
+    private DropShadowEffect? _panelCardShadow;
+    private SolidColorBrush _panelStrong = FrozenBrush("#111827");
+    private SolidColorBrush _panelNormal = FrozenBrush("#1F2329");
+    private SolidColorBrush _panelMuted = FrozenBrush("#5B6472");
+    private SolidColorBrush _panelFaint = FrozenBrush("#8A94A6");
+    private SolidColorBrush _panelBrand = FrozenBrush("#317FFF");
+    private SolidColorBrush _panelOverrun = FrozenBrush("#D92D20");
+    private bool _panelDragCandidate;
+    private bool _panelDragActive;
+    private bool _suppressPanelClick;
+    private Point _panelDragStartCursor;
+    private double _panelDragBaseX;
+    private double _panelDragBaseY;
+    private double? _pendingPanelOffsetX;
+    private double? _pendingPanelOffsetY;
+    private bool _focusActive;
+
     public PetWindow()
     {
         InitializeComponent();
@@ -119,6 +140,23 @@ public partial class PetWindow : Window
         PanelHost.AddHandler(MouseRightButtonUpEvent, new MouseButtonEventHandler(OnPanelRightButtonUp), true);
         PanelHost.MouseMove += (_, _) => TouchTimetableActivity();
         FunctionHost.AddHandler(MouseRightButtonUpEvent, new MouseButtonEventHandler(OnFunctionRightButtonUp), true);
+
+        // v1.5.0：白底卡片阴影由代码持有，专注简化态可临时去掉
+        _panelCardShadow = new DropShadowEffect
+        {
+            Color = Color.FromRgb(0x16, 0x30, 0x5C),
+            BlurRadius = 18,
+            ShadowDepth = 3,
+            Direction = 270,
+            Opacity = 0.20
+        };
+        PanelCard.Effect = _panelCardShadow;
+
+        // v1.5.0：课表可拖动（4px 阈值区分点击）
+        PanelHost.PreviewMouseLeftButtonDown += OnPanelPreviewLeftDown;
+        PanelHost.PreviewMouseMove += OnPanelPreviewMove;
+        PanelHost.PreviewMouseLeftButtonUp += OnPanelPreviewLeftUp;
+        PanelHost.LostMouseCapture += OnPanelLostMouseCapture;
 
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
@@ -414,6 +452,7 @@ public partial class PetWindow : Window
     private void OnFoldedCardClick(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        if (_suppressPanelClick) return;
         UnfoldTimetable();
     }
 
@@ -632,6 +671,8 @@ public partial class PetWindow : Window
             }
             if (!settings.ShowTimetablePanel) _idle.MarkTimetableFolded();
 
+            // v1.5.0：默认白底卡片主题
+            ApplyPanelTheme(true);
             ApplyLayout();
             _snapshot = GetLiveSnapshot();
             RefreshFromSnapshot(force: true);
@@ -641,6 +682,7 @@ public partial class PetWindow : Window
             _idleTimer.Start();
             _topmostTimer.Start();
             ApplyQaStateFromEnvironment();
+            EvaluateClassFocus();
             AnimateWindowIn();
             KeepOnTop();
         }
@@ -668,6 +710,8 @@ public partial class PetWindow : Window
                     case "expanded": ExpandFromEdge(); break;
                     case "folded": FoldTimetable(); break;
                     case "unfolded": UnfoldTimetable(); break;
+                    case "functions": ToggleFunctions(); break;
+                    case "focus": EvaluateClassFocus(); break;
                     default:
                         Log.Warn($"未知的 BANJI_PET_QA_STATE 项：{token}");
                         break;
@@ -778,10 +822,240 @@ public partial class PetWindow : Window
         }
     }
 
+    // =========================================================================
+    // v1.5.0：白底卡片主题 / 上课专注 / 功能区开关 / 课表拖动
+    // =========================================================================
+
+    /// <summary>切换面板主题：白底深字卡片（默认）或“专注简化态”的透明+白色光晕文字。</summary>
+    private void ApplyPanelTheme(bool whiteCard)
+    {
+        _panelWhiteCard = whiteCard;
+        if (whiteCard)
+        {
+            _panelStrong = FrozenBrush("#111827");
+            _panelNormal = FrozenBrush("#1F2329");
+            _panelMuted = FrozenBrush("#5B6472");
+            _panelFaint = FrozenBrush("#8A94A6");
+            _panelBrand = FrozenBrush("#317FFF");
+            _panelOverrun = FrozenBrush("#D92D20");
+
+            if (PanelCard is not null)
+            {
+                PanelCard.Background = FrozenBrush("#F5FFFFFF");
+                PanelCard.BorderBrush = FrozenBrush("#14000000");
+                PanelCard.Effect = _panelCardShadow;
+            }
+            if (FoldedTopTask is not null) FoldedTopTask.Foreground = FrozenBrush("#2F6BD8");
+            if (FoldedLabel is not null) FoldedLabel.Foreground = FrozenBrush("#317FFF");
+            if (FoldedRightText is not null) FoldedRightText.Foreground = FrozenBrush("#A2ABBB");
+            if (FoldedMain is not null) FoldedMain.Foreground = FrozenBrush("#1F2329");
+            if (FoldedSecondary is not null) FoldedSecondary.Foreground = FrozenBrush("#6B7280");
+            if (FoldedDuty is not null) FoldedDuty.Foreground = FrozenBrush("#4A6FA5");
+        }
+        else
+        {
+            _panelStrong = WhiteBrush;
+            _panelNormal = WhiteSoftBrush;
+            _panelMuted = WhiteMutedBrush;
+            _panelFaint = WhiteFaintBrush;
+            _panelBrand = BrandLightBrush;
+            _panelOverrun = WarningBrush;
+
+            if (PanelCard is not null)
+            {
+                PanelCard.Background = Brushes.Transparent;
+                PanelCard.BorderBrush = Brushes.Transparent;
+                PanelCard.Effect = null;
+            }
+            if (FoldedTopTask is not null) FoldedTopTask.Foreground = FrozenBrush("#BFD7FF");
+            if (FoldedLabel is not null) FoldedLabel.Foreground = FrozenBrush("#9CC3FF");
+            if (FoldedRightText is not null) FoldedRightText.Foreground = FrozenBrush("#CCFFFFFF");
+            if (FoldedMain is not null) FoldedMain.Foreground = WhiteBrush;
+            if (FoldedSecondary is not null) FoldedSecondary.Foreground = WhiteMutedBrush;
+            if (FoldedDuty is not null) FoldedDuty.Foreground = FrozenBrush("#9CC3FF");
+        }
+
+        // 白底卡片上关闭文字光晕（深色字不需要黑色描边），透明专注态恢复光晕
+        var haloEnabled = !whiteCard;
+        foreach (var halo in GetAllPanelHaloControls())
+        {
+            if (halo is HaloTextLine line) line.HaloEnabled = haloEnabled;
+            else if (halo is HaloTextStack stack) stack.HaloEnabled = haloEnabled;
+        }
+        _timetableSignature = "";
+        _foldedSignature = "";
+        _dutySignature = "";
+    }
+
+    private IEnumerable<FrameworkElement> GetAllPanelHaloControls()
+    {
+        yield return WeekHeaderLine;
+        yield return TopTaskBody;
+        yield return TimetableTitle;
+        yield return TimetableBody;
+        yield return TimetableEmpty;
+        yield return DutyLine;
+        yield return InfoBody;
+    }
+
+    /// <summary>根据当前时间/课表更新“上课专注模式”状态（每秒由 Clock.Tick 调用）。</summary>
+    private void EvaluateClassFocus()
+    {
+        try
+        {
+            var settings = Settings;
+            var enabled = settings.AutoHidePetDuringClass || settings.AutoSimplifyTimetableDuringClass;
+            var focus = enabled && ClassFocusMode.IsInClassFocus(_snapshot);
+            if (focus == _focusActive) return;
+
+            _focusActive = focus;
+            ApplyPanelTheme(!(focus && settings.AutoSimplifyTimetableDuringClass));
+            ApplyLayout();
+            RefreshFromSnapshot(force: true);
+            UpdatePanelSizeIfNeeded();
+            Log.Info(focus
+                ? $"进入上课专注模式（隐藏宠物={settings.AutoHidePetDuringClass}，简化课表={settings.AutoSimplifyTimetableDuringClass}）"
+                : "退出上课专注模式，恢复用户原状态");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("更新上课专注模式失败", ex);
+        }
+    }
+
+    /// <summary>当前是否处于上课专注窗口。</summary>
+    public bool IsClassFocusActive => _focusActive;
+
+    /// <summary>v1.5.0 QA：切换功能区展开/收起（Lead 的 --cmd 对接）。</summary>
+    public void ToggleFunctions()
+    {
+        try
+        {
+            if (_focusActive || _petCollapsedToEdge || Settings.HidePet)
+            {
+                // 宠物可视元素隐藏时不允许展开（避免把功能区画在空窗口里）
+                return;
+            }
+            if (_functionsExpanded) CollapseFunctions();
+            else ExpandFunctions();
+            Log.Info($"功能区已{(_functionsExpanded ? "展开" : "收起")}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("切换功能区失败", ex);
+        }
+    }
+
+    /// <summary>当前功能区是否展开（QA/测试用）。</summary>
+    public bool IsFunctionsExpanded => _functionsExpanded;
+
+    // ---------- 课表拖动 ----------
+
+    private void OnPanelPreviewLeftDown(object sender, MouseButtonEventArgs e)
+    {
+        if (_focusActive) return;
+        _panelDragCandidate = true;
+        _panelDragActive = false;
+        _panelDragStartCursor = GetCursorDip();
+        _panelDragBaseX = _pendingPanelOffsetX ?? Settings.PanelOffsetX;
+        _panelDragBaseY = _pendingPanelOffsetY ?? Settings.PanelOffsetY;
+        _suppressPanelClick = false;
+    }
+
+    private void OnPanelPreviewMove(object sender, MouseEventArgs e)
+    {
+        if (!_panelDragCandidate || e.LeftButton != MouseButtonState.Pressed)
+        {
+            if (_panelDragActive) EndPanelDrag(cancel: false);
+            return;
+        }
+        try
+        {
+            var current = GetCursorDip();
+            var dx = current.X - _panelDragStartCursor.X;
+            var dy = current.Y - _panelDragStartCursor.Y;
+            if (!_panelDragActive)
+            {
+                if (!PanelDragMath.ExceedsThreshold(dx, dy)) return;
+                _panelDragActive = true;
+                try { PanelHost.CaptureMouse(); } catch { /* ignore */ }
+            }
+            var (x, y) = PanelDragMath.ResolveOffsets(_panelDragBaseX, _panelDragBaseY, dx, dy);
+            _pendingPanelOffsetX = x;
+            _pendingPanelOffsetY = y;
+            ApplyLayout();
+            e.Handled = true;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"拖动课表失败：{ex.Message}");
+            EndPanelDrag(cancel: true);
+        }
+    }
+
+    private void OnPanelPreviewLeftUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_panelDragActive) { _panelDragCandidate = false; return; }
+        _suppressPanelClick = true;
+        e.Handled = true;
+        EndPanelDrag(cancel: false);
+        // 下一轮输入前解除点击抑制（避免拖动结束误触折叠卡/值日行点击）
+        Dispatcher.BeginInvoke(new Action(() => _suppressPanelClick = false), DispatcherPriority.Input);
+    }
+
+    /// <summary>拖动过程中窗口会随面板移动，可能短暂丢鼠标捕获；拖动未结束就重新捕获，避免只拖到一半。</summary>
+    private void OnPanelLostMouseCapture(object sender, MouseEventArgs e)
+    {
+        if (!_panelDragActive)
+        {
+            _panelDragCandidate = false;
+            return;
+        }
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (!_panelDragActive) return;
+            try { PanelHost.CaptureMouse(); } catch { /* ignore */ }
+        }), DispatcherPriority.Input);
+    }
+
+    private void EndPanelDrag(bool cancel)
+    {
+        var wasActive = _panelDragActive;
+        _panelDragCandidate = false;
+        _panelDragActive = false;
+        try { PanelHost.ReleaseMouseCapture(); } catch { /* ignore */ }
+        if (!wasActive) return;
+        if (cancel)
+        {
+            _pendingPanelOffsetX = null;
+            _pendingPanelOffsetY = null;
+            ApplyLayout();
+            return;
+        }
+
+        var x = Math.Round(_pendingPanelOffsetX ?? Settings.PanelOffsetX);
+        var y = Math.Round(_pendingPanelOffsetY ?? Settings.PanelOffsetY);
+        _pendingPanelOffsetX = null;
+        _pendingPanelOffsetY = null;
+        try
+        {
+            SettingsService.Update(s =>
+            {
+                s.PanelOffsetX = PanelDragMath.ClampOffset(x);
+                s.PanelOffsetY = PanelDragMath.ClampOffset(y);
+            });
+            Log.Info($"课表位置已更新：X={x:0}, Y={y:0}");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("保存课表位置失败", ex);
+        }
+        ApplyLayout();
+    }
     /// <summary>
-    /// v1.2.0 核心布局：宠物群（PetScale）与课表/信息面板（PanelScale + PanelOffset）分别缩放/定位，
-    /// 窗口尺寸取两者的并集（不裁切）；宠物群右下角锚定工作区右下 margin 处，并把窗口位置收进屏幕。
-    /// v1.3.0：宠物可隐藏/收起成右侧弧线（弧线固定尺寸）；课表可折叠成简洁卡片。
+    /// v1.5.0 布局：宠物/课表可独立隐藏；课表为白底圆角卡片（专注简化态除外）。
+    /// 隐藏宠物时窗口右缘精确贴工作区右缘（把手不留缝）；只剩把手时窗口缩到只有弧宽。
+    /// 课表拖动使用 _pendingPanelOffsetX/Y 临时偏移，松手后持久化到 PanelOffsetX/Y。
     /// </summary>
     private void ApplyLayout()
     {
@@ -797,45 +1071,48 @@ public partial class PetWindow : Window
             PanelScaleTransform.ScaleX = panelScale;
             PanelScaleTransform.ScaleY = panelScale;
 
-            // 宠物：正常展示宠物群；隐藏/收起时换成固定尺寸的右侧弧线
-            var petHidden = _petCollapsedToEdge || settings.HidePet;
-            PetHost.Visibility = petHidden ? Visibility.Collapsed : Visibility.Visible;
-            EdgeArcHost.Visibility = petHidden ? Visibility.Visible : Visibility.Collapsed;
+            var focusSimplify = _focusActive && settings.AutoSimplifyTimetableDuringClass;
+            var focusHidePet = _focusActive && settings.AutoHidePetDuringClass;
+            var panelVisible = settings.ShowTimetablePanel;
+            var petHidden = _petCollapsedToEdge || settings.HidePet || focusHidePet;
+            var showFoldedCard = (_timetableFolded || focusSimplify) && panelVisible;
 
-            // 面板：折叠态只显示“下节卡片”；隐藏课表时只保留常驻信息
-            var showFoldedCard = _timetableFolded && settings.ShowTimetablePanel;
-            PanelHost.Visibility = Visibility.Visible;
+            // 可见性
+            PetHost.Visibility = petHidden ? Visibility.Collapsed : Visibility.Visible;
+            PanelHost.Visibility = panelVisible ? Visibility.Visible : Visibility.Collapsed;
             FoldedCard.Visibility = showFoldedCard ? Visibility.Visible : Visibility.Collapsed;
             PanelStack.Visibility = showFoldedCard ? Visibility.Collapsed : Visibility.Visible;
-            TimetableSection.Visibility = settings.ShowTimetablePanel && !showFoldedCard
+            TimetableSection.Visibility = panelVisible && !showFoldedCard
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+            FunctionHost.Visibility = (!petHidden && !_focusActive && _functionsExpanded)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            PanelHost.Opacity = focusSimplify ? 0.55 : 1.0;
 
-            double panelDesignWidth;
-            double panelDesignHeight;
-            if (showFoldedCard)
+            // 面板尺寸（卡片内边距/阴影不参与布局，直接量卡片）
+            double panelDesignW = 0;
+            double panelDesignH = 0;
+            if (panelVisible)
             {
-                FoldedCard.Measure(new Size(196, double.PositiveInfinity));
-                panelDesignWidth = 196;
-                panelDesignHeight = Math.Max(40, FoldedCard.DesiredSize.Height);
+                PanelCard.Measure(new Size(320, double.PositiveInfinity));
+                panelDesignW = Math.Max(120, PanelCard.DesiredSize.Width);
+                panelDesignH = Math.Max(40, PanelCard.DesiredSize.Height);
+                _lastPanelDesignWidth = panelDesignW;
+                _lastPanelDesignHeight = panelDesignH;
+                PanelHost.Width = Math.Ceiling(panelDesignW);
             }
-            else
-            {
-                PanelStack.Measure(new Size(196, double.PositiveInfinity));
-                panelDesignWidth = 196;
-                panelDesignHeight = Math.Max(40, PanelStack.DesiredSize.Height);
-            }
-            _lastPanelDesignHeight = panelDesignHeight;
-            var panelW = panelDesignWidth * panelScale;
-            var panelH = panelDesignHeight * panelScale;
+            var panelW = panelDesignW * panelScale;
+            var panelH = panelDesignH * panelScale;
 
-            // 宠物区尺寸：正常是宠物群（随 PetScale）；收起/隐藏时是固定尺寸的侧边弧线
+            // 宠物区尺寸（隐藏时是弧线把手）
             double petBoxW;
             double petBoxH;
             if (petHidden)
             {
-                petBoxW = 26;
-                petBoxH = 130;
+                // 专注模式连把手都不留，也不必给宠物区留空位（窗口只剩课表卡片）
+                petBoxW = _focusActive ? 0 : 26;
+                petBoxH = _focusActive ? 0 : 130;
             }
             else
             {
@@ -846,68 +1123,142 @@ public partial class PetWindow : Window
                 petBoxH = 134 * petScale;
             }
 
-            // 面板默认位置：右缘与宠物区右缘对齐、底边在宠物区上方 8px；再叠加用户偏移
-            var offsetX = settings.PanelOffsetX;
-            var offsetY = settings.PanelOffsetY;
-            const double gap = 8;
-            var panelRight = offsetX;
-            var panelBottom = -petBoxH - gap + offsetY;
-            var panelLeft = panelRight - panelW;
-            var panelTop = panelBottom - panelH;
+            var handleOnly = petHidden && !panelVisible;
+            double windowW;
+            double windowH;
+            double petRightInWindow;
+            double petBottomInWindow;
+            var work = SystemParameters.WorkArea;
 
-            // 局部坐标：宠物区右下角为 (0,0)，向上/向左为负
-            var minX = Math.Min(-petBoxW, panelLeft);
-            var maxX = Math.Max(0, panelRight);
-            var minY = Math.Min(-petBoxH, panelTop);
-            var maxY = 0;
-
-            const double margin = 24;
-            var windowW = Math.Max(96, (maxX - minX) + margin * 2);
-            var windowH = Math.Max(120, (maxY - minY) + margin * 2);
-
-            var petRightInWindow = margin + (0 - minX);
-            var petBottomInWindow = margin + (0 - minY);
-            _petRightInWindow = petRightInWindow;
-            _petBottomInWindow = petBottomInWindow;
-
-            if (petHidden)
+            if (handleOnly)
             {
-                EdgeArcHost.Width = petBoxW;
-                EdgeArcHost.Height = petBoxH;
-                Canvas.SetLeft(EdgeArcHost, Math.Round(petRightInWindow - petBoxW));
-                Canvas.SetTop(EdgeArcHost, Math.Round(petBottomInWindow - petBoxH));
+                if (_focusActive)
+                {
+                    // 专注模式连把手都不留：1x1 隐藏窗口（不挡任何东西）
+                    EdgeArcHost.Visibility = Visibility.Collapsed;
+                    windowW = 1;
+                    windowH = 1;
+                    petRightInWindow = 0;
+                    petBottomInWindow = 0;
+                }
+                else
+                {
+                    // 只剩蓝色把手：窗口缩到弧宽，右缘精确贴工作区右缘
+                    EdgeArcHost.Visibility = Visibility.Visible;
+                    EdgeArcHost.Width = petBoxW;
+                    EdgeArcHost.Height = petBoxH;
+                    Canvas.SetLeft(EdgeArcHost, 0);
+                    Canvas.SetTop(EdgeArcHost, 0);
+                    windowW = petBoxW;
+                    windowH = petBoxH;
+                    petRightInWindow = windowW;
+                    petBottomInWindow = windowH;
+                }
             }
             else
             {
-                Canvas.SetLeft(PetHost, Math.Round(petRightInWindow - petBoxW));
-                Canvas.SetTop(PetHost, Math.Round(petBottomInWindow - petBoxH));
+                // 专注模式连把手都不留
+                EdgeArcHost.Visibility = (petHidden && !_focusActive) ? Visibility.Visible : Visibility.Collapsed;
+
+                var offsetX = _pendingPanelOffsetX ?? settings.PanelOffsetX;
+                var offsetY = _pendingPanelOffsetY ?? settings.PanelOffsetY;
+                const double gap = 8;
+                var panelRight = offsetX;
+                var panelBottom = -petBoxH - gap + offsetY;
+                var panelLeft = panelRight - panelW;
+                var panelTop = panelBottom - panelH;
+
+                double minX;
+                double maxX;
+                double minY;
+                double maxY;
+                if (panelVisible && !petHidden)
+                {
+                    minX = Math.Min(-petBoxW, panelLeft);
+                    maxX = Math.Max(0, panelRight);
+                    minY = Math.Min(-petBoxH, panelTop);
+                    maxY = 0;
+                }
+                else if (panelVisible)
+                {
+                    minX = Math.Min(-petBoxW, panelLeft);
+                    maxX = Math.Max(0, panelRight);
+                    minY = Math.Min(-petBoxH, panelTop);
+                    maxY = 0;
+                }
+                else
+                {
+                    minX = -petBoxW;
+                    maxX = 0;
+                    minY = -petBoxH;
+                    maxY = 0;
+                }
+
+                const double leftPad = 24;
+                // 隐藏宠物时右缘不留缝，让蓝色把手精确贴屏幕右缘
+                var rightPad = petHidden ? 0 : 24;
+                windowW = Math.Max(96, (maxX - minX) + leftPad + rightPad);
+                windowH = Math.Max(120, (maxY - minY) + leftPad + rightPad);
+                petRightInWindow = leftPad + (0 - minX);
+                petBottomInWindow = leftPad + (0 - minY);
+
+                if (petHidden)
+                {
+                    EdgeArcHost.Width = petBoxW;
+                    EdgeArcHost.Height = petBoxH;
+                    Canvas.SetLeft(EdgeArcHost, Math.Round(petRightInWindow - petBoxW));
+                    Canvas.SetTop(EdgeArcHost, Math.Round(petBottomInWindow - petBoxH));
+                }
+                else
+                {
+                    Canvas.SetLeft(PetHost, Math.Round(petRightInWindow - petBoxW));
+                    Canvas.SetTop(PetHost, Math.Round(petBottomInWindow - petBoxH));
+                }
+                if (panelVisible)
+                {
+                    Canvas.SetLeft(PanelHost, Math.Round(leftPad + (panelLeft - minX)));
+                    Canvas.SetTop(PanelHost, Math.Round(leftPad + (panelTop - minY)));
+                }
             }
-            Canvas.SetLeft(PanelHost, Math.Round(margin + (panelLeft - minX)));
-            Canvas.SetTop(PanelHost, Math.Round(margin + (panelTop - minY)));
+
+            _petRightInWindow = petRightInWindow;
+            _petBottomInWindow = petBottomInWindow;
 
             if (Math.Abs(Width - windowW) > 0.5) Width = windowW;
             if (Math.Abs(Height - windowH) > 0.5) Height = windowH;
 
-            var work = SystemParameters.WorkArea;
-            var desiredLeft = (work.Right - _rightMargin) - petRightInWindow;
-            double desiredTop;
-            if (petHidden && _collapsedCenterY > 0)
+            if (handleOnly && !_focusActive)
             {
-                // 收起状态：弧线在屏幕右侧竖向定在收起前的宠物中心位置
-                desiredTop = _collapsedCenterY - (petBottomInWindow - petBoxH * 0.5);
+                // 把手：Left = 工作区右缘 − 弧宽（DIP 精确、Round），垂直夹在工作区内
+                var left = EdgeSnapMath.SnapLeftToWorkRight(work.Right, windowW);
+                var desiredTop = _collapsedCenterY > 0
+                    ? _collapsedCenterY - windowH * 0.5
+                    : work.Bottom - _bottomMargin - windowH;
+                Top = EdgeSnapMath.ClampTop(desiredTop, windowH, work.Top, work.Bottom);
+                Left = left;
             }
             else
             {
-                desiredTop = (work.Bottom - _bottomMargin) - petBottomInWindow;
+                var rightMargin = petHidden ? 0 : _rightMargin;
+                var desiredLeft = (work.Right - rightMargin) - petRightInWindow;
+                double desiredTop;
+                if (petHidden && _collapsedCenterY > 0)
+                {
+                    desiredTop = _collapsedCenterY - (petBottomInWindow - petBoxH * 0.5);
+                }
+                else
+                {
+                    desiredTop = (work.Bottom - _bottomMargin) - petBottomInWindow;
+                }
+                var left = windowW <= work.Width
+                    ? Math.Clamp(desiredLeft, work.Left, work.Right - windowW)
+                    : work.Right - windowW;
+                var top = windowH <= work.Height
+                    ? Math.Clamp(desiredTop, work.Top, work.Bottom - windowH)
+                    : work.Bottom - windowH;
+                Left = Math.Round(left);
+                Top = Math.Round(top);
             }
-            var left = windowW <= work.Width
-                ? Math.Clamp(desiredLeft, work.Left, work.Right - windowW)
-                : work.Right - windowW;
-            var top = windowH <= work.Height
-                ? Math.Clamp(desiredTop, work.Top, work.Bottom - windowH)
-                : work.Bottom - windowH;
-            Left = Math.Round(left);
-            Top = Math.Round(top);
         }
         catch (Exception ex)
         {
@@ -921,31 +1272,24 @@ public partial class PetWindow : Window
         _noticeBubble.RepositionToPet();
     }
 
-    /// <summary>课表面板内容高度变化（展开/折叠、D-Day 行出现、切换折叠卡片等）时重新计算窗口尺寸，避免裁切。</summary>
+    /// <summary>面板内容尺寸变化（展开/折叠、D-Day 行出现、切换折叠卡片等）时重新计算窗口尺寸，避免裁切。</summary>
     private void UpdatePanelSizeIfNeeded()
     {
         if (!_initialized) return;
         try
         {
-            double height;
-            if (_timetableFolded && Settings.ShowTimetablePanel)
-            {
-                FoldedCard.Measure(new Size(196, double.PositiveInfinity));
-                height = FoldedCard.DesiredSize.Height;
-            }
-            else
-            {
-                PanelStack.Measure(new Size(196, double.PositiveInfinity));
-                height = PanelStack.DesiredSize.Height;
-            }
-            if (Math.Abs(height - _lastPanelDesignHeight) > 0.5) ApplyLayout();
+            if (!Settings.ShowTimetablePanel) return;
+            PanelCard.Measure(new Size(320, double.PositiveInfinity));
+            var width = PanelCard.DesiredSize.Width;
+            var height = PanelCard.DesiredSize.Height;
+            if (Math.Abs(width - _lastPanelDesignWidth) > 0.5 || Math.Abs(height - _lastPanelDesignHeight) > 0.5)
+                ApplyLayout();
         }
         catch (Exception ex)
         {
             Log.Warn($"更新课表面板尺寸失败：{ex.Message}");
         }
     }
-
     /// <summary>
     /// 刷新折叠态的“下节卡片”文案（上课中带下课倒计时）。
     /// v1.4.0：顶部压一行黑板类岗位、右侧显示单双周短文本、底部显示值周/值日行（可点击）。
@@ -1180,28 +1524,29 @@ public partial class PetWindow : Window
         }
     }
 
-    private void OnFunctionTriangleClick(object sender, RoutedEventArgs e)
-    {
-        _functionsExpanded = !_functionsExpanded;
-        if (_functionsExpanded)
-        {
-            ExpandFunctions();
-        }
-        else
-        {
-            CollapseFunctions();
-        }
-    }
+    private void OnFunctionTriangleClick(object sender, RoutedEventArgs e) => ToggleFunctions();
 
+    /// <summary>展开/收起同一个入口；会先同步 _functionsExpanded 状态再布局（修复点击后功能区不出现）。</summary>
     private void ExpandFunctions()
     {
         try
         {
+            _functionsExpanded = true;
+            FunctionHost.BeginAnimation(OpacityProperty, null);
             FunctionHost.Visibility = Visibility.Visible;
             FunctionHost.Opacity = 0;
             FunctionHostOffset.X = 14;
-            _functionsExpanded = true;
             ApplyLayout();
+            // 功能区首次展开时（之前为 Collapsed）需要一次布局，内部按钮才会按实际尺寸排布
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    FunctionsBarControl.InvalidateMeasure();
+                    FunctionsBarControl.UpdateLayout();
+                }
+                catch (Exception ex) { Log.Warn($"功能区首次布局失败：{ex.Message}"); }
+            }), DispatcherPriority.Loaded);
             var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
             FunctionHost.BeginAnimation(OpacityProperty,
                 new DoubleAnimation(1, TimeSpan.FromMilliseconds(140)) { EasingFunction = ease });
@@ -1222,6 +1567,7 @@ public partial class PetWindow : Window
     {
         try
         {
+            _functionsExpanded = false;
             var ease = new CubicEase { EasingMode = EasingMode.EaseIn };
             var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(120)) { EasingFunction = ease };
             fade.Completed += (_, _) =>
@@ -1272,6 +1618,7 @@ public partial class PetWindow : Window
         try
         {
             _snapshot = _previewTime is not null ? GetLiveSnapshot() : (snapshot ?? ScheduleSnapshot.Empty(DateTime.Now));
+            EvaluateClassFocus();
             RefreshFromSnapshot(force: false);
         }
         catch (Exception ex)
@@ -1331,6 +1678,10 @@ public partial class PetWindow : Window
             var settings = Settings;
             if (Topmost != settings.AlwaysOnTop) Topmost = settings.AlwaysOnTop;
 
+            // v1.5.0：白底主题随专注简化态切换；专注开关变化立即重新评估
+            ApplyPanelTheme(!(_focusActive && settings.AutoSimplifyTimetableDuringClass));
+            EvaluateClassFocus();
+
             // v1.3.0：隐藏宠物 / 隐藏课表 / 空闲分钟数变化时同步空闲状态机
             if (settings.HidePet != _lastHidePet)
             {
@@ -1389,6 +1740,8 @@ public partial class PetWindow : Window
             settings.ShowCountdownOnPet,
             settings.ShowWeekNumberOnPet,
             settings.ShowDutyOnPet,
+            settings.AutoHidePetDuringClass,
+            settings.AutoSimplifyTimetableDuringClass,
             string.Join(";", settings.CountdownEvents.Select(c => $"{c.Id}:{c.Name}:{c.Date:yyyyMMdd}:{c.Enabled}:{c.Color}")));
     }
 
@@ -1509,7 +1862,7 @@ public partial class PetWindow : Window
             // 面板顶部周次标题
             if (_weekHeaderText.Length > 0)
             {
-                WeekHeaderLine.SetText(_weekHeaderText, _fontLight, 9.5, WhiteFaintBrush);
+                WeekHeaderLine.SetText(_weekHeaderText, _fontLight, 9.5, _panelFaint);
                 WeekHeaderLine.Visibility = Visibility.Visible;
             }
             else
@@ -1523,9 +1876,9 @@ public partial class PetWindow : Window
                 var lines = _topDutyLines
                     .Select(l => (IReadOnlyList<HaloSegment>)new List<HaloSegment>
                     {
-                        new(l.TaskName, _fontMedium, 10.5, BrandLightBrush),
-                        new("：", _fontLight, 10.5, WhiteFaintBrush),
-                        new(l.MembersText, _fontLight, 10.5, WhiteSoftBrush)
+                        new(l.TaskName, _fontMedium, 10.5, _panelBrand),
+                        new("：", _fontLight, 10.5, _panelFaint),
+                        new(l.MembersText, _fontLight, 10.5, _panelNormal)
                     })
                     .ToList();
                 TopTaskBody.SetLines(lines);
@@ -1539,7 +1892,7 @@ public partial class PetWindow : Window
             // 值周/值日行（点击打开“值日与轮值”）
             if (_dutySummaryText.Length > 0)
             {
-                DutyLine.SetText(_dutySummaryText, _fontLight, 10, BrandLightBrush);
+                DutyLine.SetText(_dutySummaryText, _fontLight, 10, _panelBrand);
                 DutyLineHost.Visibility = Visibility.Visible;
             }
             else
@@ -1594,12 +1947,14 @@ public partial class PetWindow : Window
     private void OnDutyLineClick(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        if (_suppressPanelClick) return;
         OpenDutyWindow();
     }
 
     private void OnFoldedDutyClick(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
+        if (_suppressPanelClick) return;
         OpenDutyWindow();
     }
 
@@ -1637,18 +1992,18 @@ public partial class PetWindow : Window
         var row1 = new List<HaloSegment>();
         if (!string.IsNullOrEmpty(primary.Label))
         {
-            var labelBrush = primary.IsOverrun ? WarningBrush : WhiteMutedBrush;
+            var labelBrush = primary.IsOverrun ? _panelOverrun : _panelMuted;
             row1.Add(new HaloSegment(primary.Label + " ", _fontLight, 10.5, labelBrush));
         }
         if (!string.IsNullOrEmpty(primary.Value))
         {
-            var valueBrush = primary.IsOverrun ? WarningBrush : WhiteBrush;
+            var valueBrush = primary.IsOverrun ? _panelOverrun : _panelStrong;
             var size = string.IsNullOrEmpty(primary.Label) ? 14.5 : 16.5;
             row1.Add(new HaloSegment(primary.Value, _fontMedium, size, valueBrush));
         }
         else
         {
-            row1.Add(new HaloSegment("—", _fontMedium, 14, WhiteMutedBrush));
+            row1.Add(new HaloSegment("—", _fontMedium, 14, _panelMuted));
         }
         lines.Add(row1);
 
@@ -1656,14 +2011,14 @@ public partial class PetWindow : Window
         var row2 = new List<HaloSegment>();
         if (!string.IsNullOrEmpty(school.Label))
         {
-            row2.Add(new HaloSegment(school.Label + " ", _fontLight, 9.5, WhiteMutedBrush));
-            row2.Add(new HaloSegment(school.Value, _fontMedium, 11.5, WhiteSoftBrush));
+            row2.Add(new HaloSegment(school.Label + " ", _fontLight, 9.5, _panelMuted));
+            row2.Add(new HaloSegment(school.Value, _fontMedium, 11.5, _panelNormal));
             if (!string.IsNullOrEmpty(school.Suffix))
-                row2.Add(new HaloSegment(school.Suffix, _fontLight, 9.5, WhiteMutedBrush));
+                row2.Add(new HaloSegment(school.Suffix, _fontLight, 9.5, _panelMuted));
         }
         else if (!string.IsNullOrEmpty(school.Value))
         {
-            row2.Add(new HaloSegment(school.Value, _fontLight, 10.5, WhiteMutedBrush));
+            row2.Add(new HaloSegment(school.Value, _fontLight, 10.5, _panelMuted));
         }
         lines.Add(row2);
 
@@ -1673,22 +2028,22 @@ public partial class PetWindow : Window
         {
             if (!string.IsNullOrEmpty(course.Prefix1) && !string.IsNullOrEmpty(course.Value1))
             {
-                row3.Add(new HaloSegment(course.Prefix1 + " ", _fontLight, 9.5, WhiteMutedBrush));
-                row3.Add(new HaloSegment(course.Value1, _fontMedium, 11.5, WhiteBrush));
+                row3.Add(new HaloSegment(course.Prefix1 + " ", _fontLight, 9.5, _panelMuted));
+                row3.Add(new HaloSegment(course.Value1, _fontMedium, 11.5, _panelStrong));
             }
             else if (!string.IsNullOrEmpty(course.Value1))
             {
-                row3.Add(new HaloSegment(course.Value1, _fontLight, 10.5, WhiteMutedBrush));
+                row3.Add(new HaloSegment(course.Value1, _fontLight, 10.5, _panelMuted));
             }
             if (!string.IsNullOrEmpty(course.Prefix2) && !string.IsNullOrEmpty(course.Value2))
             {
-                row3.Add(new HaloSegment(" " + course.Prefix2.TrimStart() + " ", _fontLight, 9.5, WhiteMutedBrush));
-                row3.Add(new HaloSegment(course.Value2, _fontMedium, 11.5, BrandLightBrush));
+                row3.Add(new HaloSegment(" " + course.Prefix2.TrimStart() + " ", _fontLight, 9.5, _panelMuted));
+                row3.Add(new HaloSegment(course.Value2, _fontMedium, 11.5, _panelBrand));
             }
         }
         else
         {
-            row3.Add(new HaloSegment("—", _fontLight, 10.5, WhiteMutedBrush));
+            row3.Add(new HaloSegment("—", _fontLight, 10.5, _panelMuted));
         }
         lines.Add(row3);
 
@@ -1709,7 +2064,7 @@ public partial class PetWindow : Window
             {
                 lines.Add(new[]
                 {
-                    new HaloSegment($"距{dday.Name} ", _fontLight, 10.5, WhiteSoftBrush),
+                    new HaloSegment($"距{dday.Name} ", _fontLight, 10.5, _panelNormal),
                     new HaloSegment($"{dday.DaysLeft} 天", _fontBold, 13, accent, FontWeights.Bold)
                 });
             }
@@ -1740,7 +2095,7 @@ public partial class PetWindow : Window
         // v1.4.0：放学后 N 分钟内，用轮值信息替换课表内容（之后恢复“已放学/今天的课已上完”）
         if (_afterSchoolDutyActive && _dutySchedule is not null)
         {
-            TimetableTitle.SetText("放学后", _fontLight, 10.5, WhiteMutedBrush);
+            TimetableTitle.SetText("放学后", _fontLight, 10.5, _panelMuted);
             var dutyLines = BuildDutyBodyLines(afterSchoolLines);
             if (dutyLines.Count > 0)
             {
@@ -1756,7 +2111,7 @@ public partial class PetWindow : Window
         }
 
         TimetableTitle.SetText(PetUiFormatter.TimetableTitle(_previewTime ?? DateTime.Now),
-            _fontLight, 10.5, WhiteMutedBrush);
+            _fontLight, 10.5, _panelMuted);
 
         var hasToday = snapshot.HasTimetable && today.Count > 0;
         if (!hasToday)
@@ -1807,9 +2162,9 @@ public partial class PetWindow : Window
         {
             result.Add(new List<HaloSegment>
             {
-                new(line.TaskName, _fontMedium, 11.5, WhiteSoftBrush),
-                new("：", _fontLight, 10.5, WhiteFaintBrush),
-                new(line.MembersText, _fontLight, 10.5, WhiteMutedBrush)
+                new(line.TaskName, _fontMedium, 11.5, _panelNormal),
+                new("：", _fontLight, 10.5, _panelFaint),
+                new(line.MembersText, _fontLight, 10.5, _panelMuted)
             });
         }
         return result;
@@ -1817,7 +2172,7 @@ public partial class PetWindow : Window
 
     private void SetTimetableHint(string text)
     {
-        TimetableEmpty.SetText(text, _fontLight, 10.5, WhiteMutedBrush);
+        TimetableEmpty.SetText(text, _fontLight, 10.5, _panelMuted);
         TimetableEmpty.Visibility = Visibility.Visible;
     }
 
@@ -1828,8 +2183,8 @@ public partial class PetWindow : Window
     private List<HaloSegment> BuildTimetableLine(CourseOccurrence course, bool isHighlight, int maxCourseChars)
     {
         var isPast = course.Status == CourseStatus.Past;
-        var indexBrush = isHighlight ? WarningBrush : WhiteFaintBrush;
-        var courseBrush = isHighlight ? _accentBrush : (isPast ? WhiteMutedBrush : WhiteSoftBrush);
+        var indexBrush = isHighlight ? _panelOverrun : _panelFaint;
+        var courseBrush = isHighlight ? _accentBrush : (isPast ? _panelMuted : _panelNormal);
 
         var index = PetUiFormatter.PeriodTag(course).PadLeft(2, '　') + "　";
 
@@ -1844,7 +2199,7 @@ public partial class PetWindow : Window
                 isHighlight ? 12.5 : 12, courseBrush,
                 isHighlight ? FontWeights.Bold : FontWeights.Normal),
             new("　" + PetUiFormatter.CourseTime(course), _fontLight, 8.5,
-                isHighlight ? WarningBrush : WhiteFaintBrush)
+                isHighlight ? _panelOverrun : _panelFaint)
         };
     }
     // =========================================================================
@@ -1908,6 +2263,21 @@ public partial class PetWindow : Window
         catch { return fallback; }
     }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

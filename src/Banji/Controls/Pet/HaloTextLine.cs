@@ -33,6 +33,7 @@ public sealed class HaloTextLine : Grid
     private readonly List<TextBlock> _outlines = new();
     private readonly TextBlock _front;
     private readonly BlurEffect _wideEffect;
+    private bool _haloEnabled = true;
 
     public HaloTextLine()
     {
@@ -74,6 +75,20 @@ public sealed class HaloTextLine : Grid
         VerticalAlignment = VerticalAlignment.Center,
         IsHitTestVisible = false
     };
+
+    /// <summary>
+    /// v1.5.0：白底卡片上改用深色文字时关闭光晕/描边层（只保留正文字），避免黑边糊在卡片上。
+    /// </summary>
+    public bool HaloEnabled
+    {
+        get => _haloEnabled;
+        set
+        {
+            _haloEnabled = value;
+            _haloWide.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var outline in _outlines) outline.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
 
     /// <summary>远层光晕的高斯模糊半径（建议 14~22，越大背景压得越平整）。</summary>
     public double HaloRadius
@@ -135,4 +150,5 @@ public sealed class HaloTextLine : Grid
         foreach (var outline in _outlines) outline.Inlines.Clear();
     }
 }
+
 

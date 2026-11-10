@@ -234,27 +234,6 @@
                             Minimum="0.4" Maximum="4" ValueChanged="OnPanelScaleSliderChanged" />
                 </StackPanel>
 
-                <!-- 课表左右位置（相对默认位置偏移） -->
-                <StackPanel Margin="12,3,12,2">
-                    <Grid Margin="0,0,0,1">
-                        <TextBlock Text="课表左右位置" FontSize="12" Foreground="#1F2329" VerticalAlignment="Center" />
-                        <TextBlock x:Name="PanelOffsetXValue" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                   FontFamily="{StaticResource Font.Medium}" FontSize="12" Foreground="#317FFF" />
-                    </Grid>
-                    <Slider x:Name="PanelOffsetXSlider" Style="{StaticResource Menu.Slider}"
-                            Minimum="-300" Maximum="300" ValueChanged="OnPanelOffsetXChanged" />
-                </StackPanel>
-
-                <!-- 课表上下位置 -->
-                <StackPanel Margin="12,3,12,3">
-                    <Grid Margin="0,0,0,1">
-                        <TextBlock Text="课表上下位置" FontSize="12" Foreground="#1F2329" VerticalAlignment="Center" />
-                        <TextBlock x:Name="PanelOffsetYValue" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                   FontFamily="{StaticResource Font.Medium}" FontSize="12" Foreground="#317FFF" />
-                    </Grid>
-                    <Slider x:Name="PanelOffsetYSlider" Style="{StaticResource Menu.Slider}"
-                            Minimum="-300" Maximum="300" ValueChanged="OnPanelOffsetYChanged" />
-                </StackPanel>
 
                 <!-- 按钮透明度 -->
                 <StackPanel Margin="12,5,12,3">
@@ -349,6 +328,7 @@
         </Border>
     </Grid>
 </Window>
+
 
 
 
