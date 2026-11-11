@@ -234,7 +234,7 @@
                     <ListBoxItem Content="备份与恢复" Tag="backup" />
                 </ListBox>
 
-                <TextBlock DockPanel.Dock="Bottom" Text="班机 v1.5.2 · 设置会自动保存"
+                <TextBlock DockPanel.Dock="Bottom" Text="班机 v1.5.3 · 设置会自动保存"
                            FontFamily="{StaticResource Font.Regular}" FontSize="11"
                            Foreground="{StaticResource Brush.TextTertiary}" Margin="8,0,0,0" />
             </DockPanel>

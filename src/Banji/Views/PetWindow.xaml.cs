@@ -41,6 +41,11 @@ public partial class PetWindow : Window
     private static readonly SolidColorBrush BrandLightBrush = FrozenBrush("#9CC3FF");
     private static readonly SolidColorBrush WarningBrush = FrozenBrush("#FF6B6B");
     private static readonly SolidColorBrush ToolTipTextBrush = FrozenBrush("#1F2329");
+    // v1.5.3 上课专注态：深色玻璃材质 + 文字黑色投影（在纯白/纯黑/蓝底上都清晰）
+    private static readonly Brush FocusGlassBrush = CreateFocusGlassBrush();
+    private static readonly SolidColorBrush FocusGlassBorder = FrozenBrush("#4DFFFFFF");
+    private static readonly DropShadowEffect FocusCardShadow = CreateFrozenShadow(Colors.Black, 16, 0, 0.26);
+    private static readonly DropShadowEffect FocusTextShadow = CreateFrozenShadow(Colors.Black, 7, 0, 1.0);
 
     private SolidColorBrush _accentBrush = FrozenBrush("#FF3030");
     private SolidColorBrush _brandBrush = FrozenBrush("#317FFF");
@@ -843,14 +848,15 @@ public partial class PetWindow : Window
             {
                 PanelCard.Background = FrozenBrush("#F5FFFFFF");
                 PanelCard.BorderBrush = FrozenBrush("#14000000");
+                PanelCard.BorderThickness = new Thickness(1);
                 PanelCard.Effect = _panelCardShadow;
             }
-            if (FoldedTopTask is not null) FoldedTopTask.Foreground = FrozenBrush("#2F6BD8");
-            if (FoldedLabel is not null) FoldedLabel.Foreground = FrozenBrush("#317FFF");
-            if (FoldedRightText is not null) FoldedRightText.Foreground = FrozenBrush("#A2ABBB");
-            if (FoldedMain is not null) FoldedMain.Foreground = FrozenBrush("#1F2329");
-            if (FoldedSecondary is not null) FoldedSecondary.Foreground = FrozenBrush("#6B7280");
-            if (FoldedDuty is not null) FoldedDuty.Foreground = FrozenBrush("#4A6FA5");
+            if (FoldedTopTask is not null) { FoldedTopTask.Foreground = FrozenBrush("#2F6BD8"); FoldedTopTask.Effect = null; }
+            if (FoldedLabel is not null) { FoldedLabel.Foreground = FrozenBrush("#317FFF"); FoldedLabel.Effect = null; }
+            if (FoldedRightText is not null) { FoldedRightText.Foreground = FrozenBrush("#A2ABBB"); FoldedRightText.Effect = null; }
+            if (FoldedMain is not null) { FoldedMain.Foreground = FrozenBrush("#1F2329"); FoldedMain.Effect = null; }
+            if (FoldedSecondary is not null) { FoldedSecondary.Foreground = FrozenBrush("#6B7280"); FoldedSecondary.Effect = null; }
+            if (FoldedDuty is not null) { FoldedDuty.Foreground = FrozenBrush("#4A6FA5"); FoldedDuty.Effect = null; }
         }
         else
         {
@@ -863,16 +869,18 @@ public partial class PetWindow : Window
 
             if (PanelCard is not null)
             {
-                PanelCard.Background = Brushes.Transparent;
+                // v1.5.3：专注态用深色半透明玻璃底（纯白背景下白字也能读），而不是完全透明
+                PanelCard.Background = FocusGlassBrush;
                 PanelCard.BorderBrush = Brushes.Transparent;
-                PanelCard.Effect = null;
+                PanelCard.BorderThickness = new Thickness(0);
+                PanelCard.Effect = FocusCardShadow;
             }
-            if (FoldedTopTask is not null) FoldedTopTask.Foreground = FrozenBrush("#BFD7FF");
-            if (FoldedLabel is not null) FoldedLabel.Foreground = FrozenBrush("#9CC3FF");
-            if (FoldedRightText is not null) FoldedRightText.Foreground = FrozenBrush("#CCFFFFFF");
-            if (FoldedMain is not null) FoldedMain.Foreground = WhiteBrush;
-            if (FoldedSecondary is not null) FoldedSecondary.Foreground = WhiteMutedBrush;
-            if (FoldedDuty is not null) FoldedDuty.Foreground = FrozenBrush("#9CC3FF");
+            if (FoldedTopTask is not null) { FoldedTopTask.Foreground = FrozenBrush("#BFD7FF"); FoldedTopTask.Effect = FocusTextShadow; }
+            if (FoldedLabel is not null) { FoldedLabel.Foreground = FrozenBrush("#9CC3FF"); FoldedLabel.Effect = FocusTextShadow; }
+            if (FoldedRightText is not null) { FoldedRightText.Foreground = FrozenBrush("#CCFFFFFF"); FoldedRightText.Effect = FocusTextShadow; }
+            if (FoldedMain is not null) { FoldedMain.Foreground = WhiteBrush; FoldedMain.Effect = FocusTextShadow; }
+            if (FoldedSecondary is not null) { FoldedSecondary.Foreground = WhiteMutedBrush; FoldedSecondary.Effect = FocusTextShadow; }
+            if (FoldedDuty is not null) { FoldedDuty.Foreground = FrozenBrush("#9CC3FF"); FoldedDuty.Effect = FocusTextShadow; }
         }
 
         // 白底卡片上关闭文字光晕（深色字不需要黑色描边），透明专注态恢复光晕
@@ -1088,7 +1096,7 @@ public partial class PetWindow : Window
             FunctionHost.Visibility = (!petHidden && !_focusActive && _functionsExpanded)
                 ? Visibility.Visible
                 : Visibility.Collapsed;
-            PanelHost.Opacity = focusSimplify ? 0.55 : 1.0;
+            PanelHost.Opacity = focusSimplify ? 0.92 : 1.0;
 
             // 面板尺寸（卡片内边距/阴影不参与布局，直接量卡片）
             double panelDesignW = 0;
@@ -2240,6 +2248,26 @@ public partial class PetWindow : Window
     // 小工具
     // =========================================================================
 
+
+    private static Brush CreateFocusGlassBrush()
+    {
+        var brush = new LinearGradientBrush
+        {
+            StartPoint = new Point(0.5, 0),
+            EndPoint = new Point(0.5, 1)
+        };
+        brush.GradientStops.Add(new GradientStop(Color.FromArgb(0x1C, 0, 0, 0), 0.0));
+        brush.GradientStops.Add(new GradientStop(Color.FromArgb(0x08, 0, 0, 0), 1.0));
+        brush.Freeze();
+        return brush;
+    }
+
+    private static DropShadowEffect CreateFrozenShadow(Color color, double blur, double depth, double opacity)
+    {
+        var effect = new DropShadowEffect { Color = color, BlurRadius = blur, ShadowDepth = depth, Direction = 270, Opacity = opacity };
+        effect.Freeze();
+        return effect;
+    }
 
     private static SolidColorBrush FrozenBrush(string hex)
     {

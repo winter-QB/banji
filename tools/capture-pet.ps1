@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory = $true)][string]$Out,
     [ValidateSet("dark", "light")][string]$Mode = "dark",
     [int]$Padding = 60,
@@ -24,24 +24,25 @@ public static class PetCap2 {
     [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
-    [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     public delegate bool EnumProc(IntPtr h, IntPtr l);
     public struct RECT { public int Left, Top, Right, Bottom; }
-    /// <summary>按标题找窗口；ProcessName 非空时只匹配该进程名（避免命中用户正在运行的正式版班机）。</summary>
-    public static IntPtr Find(string title, string processName = "") {
+    /// <summary>按标题找窗口；pathLike 非空时只匹配该进程可执行文件路径片段（避免命中用户正式版）。</summary>
+    public static IntPtr Find(string title, string pathLike = "") {
         IntPtr found = IntPtr.Zero;
         EnumWindows((h, l) => {
             if (!IsWindowVisible(h)) return true;
             var sb = new StringBuilder(512);
             GetWindowText(h, sb, 512);
             if (sb.ToString() != title) return true;
-            if (!string.IsNullOrEmpty(processName)) {
+            if (!string.IsNullOrEmpty(pathLike)) {
                 uint pid;
                 GetWindowThreadProcessId(h, out pid);
                 if (pid == 0) return true;
                 try {
                     var p = System.Diagnostics.Process.GetProcessById((int)pid);
-                    if (!string.Equals(p.ProcessName, processName, StringComparison.OrdinalIgnoreCase)) return true;
+                    var exePath = p.MainModule.FileName;
+                    if (exePath.IndexOf(pathLike, StringComparison.OrdinalIgnoreCase) < 0) return true;
+                    Console.WriteLine("matched: " + exePath);
                 } catch { return true; }
             }
             found = h; return false;
@@ -53,7 +54,7 @@ public static class PetCap2 {
 [PetCap2]::SetProcessDpiAwarenessContext([IntPtr]::new(-4)) | Out-Null
 
 $rects = @()
-$petHwnd = [PetCap2]::Find("班机", $ProcessName)
+$petHwnd = [PetCap2]::Find("班机", $ProcessPathLike)
 if ($petHwnd -eq [IntPtr]::Zero) { throw "找不到班机宠物窗（Title=班机）" }
 $pr = New-Object PetCap2+RECT
 [PetCap2]::GetWindowRect($petHwnd, [ref]$pr) | Out-Null
@@ -61,7 +62,7 @@ $rects += $pr
 
 $extraHwnds = @()
 foreach ($t in $ExtraTitle) {
-    $h = [PetCap2]::Find($t, $ProcessName)
+    $h = [PetCap2]::Find($t, $ProcessPathLike)
     if ($h -eq [IntPtr]::Zero) { continue }
     $extraHwnds += $h
     $r = New-Object PetCap2+RECT
