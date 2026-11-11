@@ -391,7 +391,7 @@ public partial class SettingsWindow
             }));
     }
 
-    /// <summary>v1.6.0：专注便签样式（9 种贴边位置 + 长度/压暗/模糊）。</summary>
+    /// <summary>v1.6.0：专注便签样式（9 种贴边位置 + 便签长度；白色实心便签 + 靠边蓝色细条）。</summary>
     private FrameworkElement BuildFocusNoteStyleCard(AppSettings s)
     {
         var placementPanel = new Grid();
@@ -442,30 +442,20 @@ public partial class SettingsWindow
         return Card(
             SectionCardTitle("专注便签样式"),
             Row("便签贴边位置",
-                "专注时课表变成贴边便签：9 种位置任选，宠物与课表是独立窗口，互不联动。",
+                "专注时显示一张白色小标签，靠屏幕边一侧有蓝色细条；选一个贴边位置，长度可调。宠物与课表是独立窗口，互不联动。",
                 new StackPanel
                 {
                     Children = { placementPanel, placementHint }
                 }),
             Divider(),
             SliderRow("便签长度",
-                "沿屏幕边缘方向的长度（占屏幕宽/高的百分比，20~80%，默认 35%）。",
+                "白色便签沿屏幕边缘方向的长度（占屏幕宽/高的百分比，20~80%，默认 35%）。",
                 20, 80, Math.Clamp(s.FocusNoteLengthPercent, 20, 80), 1, v => $"{(int)Math.Round(v)}%",
                 v => Settings.Update(x => x.FocusNoteLengthPercent = (int)Math.Round(v))),
             Divider(),
-            SliderRow("压暗强度",
-                "便签背景压暗屏幕的程度（0~40%，默认 12%）。越大越不干扰，0 = 不压暗。",
-                0, 40, Math.Clamp(s.FocusNoteDimPercent, 0, 40), 1, v => $"{(int)Math.Round(v)}%",
-                v => Settings.Update(x => x.FocusNoteDimPercent = (int)Math.Round(v))),
-            Divider(),
-            SliderRow("边缘模糊",
-                "便签向屏幕中央渐弱的高斯模糊半径（0~24，默认 10）。0 = 不模糊。",
-                0, 24, Math.Clamp(s.FocusNoteBlurRadius, 0, 24), 1, v => $"{(int)Math.Round(v)}",
-                v => Settings.Update(x => x.FocusNoteBlurRadius = (int)Math.Round(v))),
-            Divider(),
             FullRow("说明", null, new TextBlock
             {
-                Text = "专注时课表变成贴边便签，宠物与课表是独立窗口、互不联动；选择“自由拖动”可在专注时直接拖到任意位置。" +
+                Text = "专注时显示一张白色小标签（靠屏幕边一侧有蓝色细条），长度可调；选择“自由拖动”可在专注时直接拖到任意位置。" +
                        "改动立即生效并自动保存；恢复默认样式在上方「恢复默认大小与位置」按钮里。",
                 FontFamily = FontRegular,
                 FontSize = 11.5,

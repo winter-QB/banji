@@ -77,39 +77,23 @@
             </Border>
         </Grid>
 
-        <!-- ② 专注态：贴边便签（清晰层靠边端、模糊层向中央渐弱，见 TimetablePanelWindow.xaml.cs） -->
+        <!-- ② 专注态：Windows 便笺纸（v1.6.0 用户定稿）：实心白底方角、无模糊/渐变/压暗/阴影；贴屏幕边那侧一条主题蓝细条 -->
         <Grid x:Name="NoteHost" Visibility="Collapsed" Cursor="SizeAll">
-            <!-- 压暗层 + 清晰文字（整体从贴边端 1 → 中央端 0 渐隐） -->
-            <Grid x:Name="NoteClearLayer" Background="Transparent">
-                <Border x:Name="NoteDimBorder" CornerRadius="12" />
-                <Grid x:Name="NoteClearTextHost">
-                    <StackPanel x:Name="NoteClearTextPanel" VerticalAlignment="Center" Margin="16,10,16,10">
-                        <TextBlock x:Name="NoteLine1" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
-                                   FontSize="16" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" />
-                        <TextBlock x:Name="NoteLine2" FontFamily="{StaticResource Font.Light}" FontSize="11"
-                                   Foreground="#E6FFFFFF" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
-                    </StackPanel>
+            <Grid x:Name="NotePaper" Background="#FFFFFF">
+                <!-- 深色文字：无描边/投影/模糊，只留 1~2 行 -->
+                <Grid x:Name="NoteTextLayer" Background="Transparent">
+                    <Grid x:Name="NoteTextHost">
+                        <StackPanel x:Name="NoteTextPanel" VerticalAlignment="Center" Margin="12,8,12,8">
+                            <TextBlock x:Name="NoteLine1" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                                       FontSize="13.5" Foreground="#1F2329" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="NoteLine2" FontFamily="{StaticResource Font.Light}" FontSize="10.5"
+                                       Foreground="#1F2329" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Grid>
                 </Grid>
-            </Grid>
-
-            <!-- 模糊层（靠边端透明、向中央端渐显模糊文字） -->
-            <Grid x:Name="NoteBlurLayer" Background="Transparent">
-                <Grid x:Name="NoteBlurTextHost">
-                    <StackPanel x:Name="NoteBlurTextPanel" VerticalAlignment="Center" Margin="16,10,16,10">
-                        <TextBlock x:Name="NoteBlurLine1" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
-                                   FontSize="16" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis">
-                            <TextBlock.Effect>
-                                <BlurEffect Radius="10" RenderingBias="Quality" />
-                            </TextBlock.Effect>
-                        </TextBlock>
-                        <TextBlock x:Name="NoteBlurLine2" FontFamily="{StaticResource Font.Light}" FontSize="11"
-                                   Foreground="#E6FFFFFF" TextTrimming="CharacterEllipsis" Margin="0,3,0,0">
-                            <TextBlock.Effect>
-                                <BlurEffect Radius="10" RenderingBias="Quality" />
-                            </TextBlock.Effect>
-                        </TextBlock>
-                    </StackPanel>
-                </Grid>
+                <!-- 贴边侧主题蓝细条（5 DIP，位置由 code-behind 按 9 种方位设置） -->
+                <Border x:Name="NoteAccentStrip" Height="5" HorizontalAlignment="Stretch"
+                        VerticalAlignment="Top" Background="#317FFF" />
             </Grid>
         </Grid>
     </Canvas>

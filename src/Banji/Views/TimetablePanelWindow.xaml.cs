@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -39,6 +39,7 @@ public partial class TimetablePanelWindow : Window
     private static readonly SolidColorBrush PanelBrand = FrozenBrush("#317FFF");
     private static readonly SolidColorBrush PanelOverrun = FrozenBrush("#D92D20");
     private static readonly SolidColorBrush ToolTipTextBrush = FrozenBrush("#1F2329");
+    private static readonly SolidColorBrush StickyStripBrush = FrozenBrush(FocusNoteStickyStyle.StripColor);
 
     private readonly DispatcherTimer _topmostTimer;
     private SolidColorBrush _accentBrush = FrozenBrush("#FF3030");
@@ -750,12 +751,12 @@ public partial class TimetablePanelWindow : Window
             // 非 Free 时禁止拖动
         }
 
-        // 先按比例估算长度，用文本量出厚度后再算最终几何
+        // 先按比例估算长度，用文本量出厚度后再算最终几何（便笺纸：紧凑 1~2 行）
         var work = SystemParameters.WorkArea;
         var estimatedLength = FocusNoteLayout.ComputeLength(work.Width, work.Height, settings.FocusNoteLengthPercent);
-        var textW = Math.Max(60, estimatedLength - 32);
-        NoteClearTextPanel.Measure(new Size(textW, double.PositiveInfinity));
-        var thickness = Math.Clamp(NoteClearTextPanel.DesiredSize.Height + 20, 52, FocusNoteLayout.MaxThickness);
+        var textW = Math.Max(60, estimatedLength - FocusNoteStickyStyle.TextPadding * 2);
+        NoteTextPanel.Measure(new Size(textW, double.PositiveInfinity));
+        var thickness = Math.Clamp(NoteTextPanel.DesiredSize.Height + 12, 46, FocusNoteLayout.MaxThickness);
 
         var (freeX, freeY) = ResolveFreePosition(settings, work);
         var geometry = FocusNoteLayout.Compute(placement, work.Left, work.Top, work.Right, work.Bottom,
@@ -772,7 +773,7 @@ public partial class TimetablePanelWindow : Window
         NoteHost.Width = Width;
         NoteHost.Height = Height;
 
-        LayoutNoteLayers(geometry, settings);
+        LayoutNoteLayers(geometry);
         ApplyNoteText();
     }
 
@@ -788,66 +789,64 @@ public partial class TimetablePanelWindow : Window
         return (settings.FocusNoteFreeLeft, settings.FocusNoteFreeTop);
     }
 
-    private void LayoutNoteLayers(FocusNoteGeometry geometry, Core.Settings.AppSettings settings)
+    /// <summary>
+    /// v1.6.0 定稿：Windows 便笺纸样式——实心白底方角、无模糊/渐变/压暗/阴影；
+    /// 贴屏幕边那侧一条主题蓝细条；深色文字清晰不淡化。
+    /// </summary>
+    private void LayoutNoteLayers(FocusNoteGeometry geometry)
     {
-        // 背景压暗：同方向黑色渐变（靠边端 FocusNoteDimPercent%，向中央 0）
-        var dimAlpha = (byte)Math.Round(Math.Clamp(settings.FocusNoteDimPercent, 0, 40) * 255.0 / 100.0);
-        var dimBrush = new LinearGradientBrush
-        {
-            StartPoint = new Point(geometry.MaskStartX, geometry.MaskStartY),
-            EndPoint = new Point(geometry.MaskEndX, geometry.MaskEndY)
-        };
-        dimBrush.GradientStops.Add(new GradientStop(Color.FromArgb(dimAlpha, 0, 0, 0), 0));
-        dimBrush.GradientStops.Add(new GradientStop(Colors.Transparent, 1));
-        NoteDimBorder.Background = dimBrush;
+        NoteTextLayer.OpacityMask = null;
+        NoteTextPanel.Opacity = FocusNoteStickyStyle.TextOpacity;
 
-        // 清晰层：靠边 1 → 中央 0
-        NoteClearLayer.OpacityMask = BuildMaskBrush(geometry, opaqueAtStart: true);
-        // 模糊层：靠边 0 → 中央 0.9 渐显
-        NoteBlurLayer.OpacityMask = BuildMaskBrush(geometry, opaqueAtStart: false);
+        ApplyStickyAccentStrip(FocusNoteStickyStyle.StripEdge(CurrentPlacement()));
 
-        var blur = Math.Clamp(settings.FocusNoteBlurRadius, 0, 24);
-        if (NoteBlurLine1.Effect is BlurEffect b1) b1.Radius = Math.Max(0.1, blur);
-        if (NoteBlurLine2.Effect is BlurEffect b2) b2.Radius = Math.Max(0.1, blur);
-        NoteBlurLayer.Opacity = blur <= 0 ? 0 : 1;
-
-        // 文字居中铺满便签，配合渐变遮罩呈现“靠边端实、向中央渐弱”
-        NoteClearTextPanel.HorizontalAlignment = HorizontalAlignment.Center;
-        NoteBlurTextPanel.HorizontalAlignment = HorizontalAlignment.Center;
-        NoteLine1.TextAlignment = TextAlignment.Center;
-        NoteLine2.TextAlignment = TextAlignment.Center;
+        // 文字靠近“实边”一侧（Free/竖直便签取左上），深色字直接显示
+        var textAlignment = geometry.IsVertical || geometry.SolidAtStart
+            ? HorizontalAlignment.Left
+            : HorizontalAlignment.Right;
+        NoteTextPanel.HorizontalAlignment = textAlignment;
+        NoteLine1.TextAlignment = TextAlignment.Left;
+        NoteLine2.TextAlignment = TextAlignment.Left;
 
         var rotation = geometry.TextRotationDegrees;
-        foreach (var host in new FrameworkElement[] { NoteClearTextHost, NoteBlurTextHost })
-        {
-            // 竖直便签：内容水平盒子为 长×厚，LayoutTransform 旋转 ±90° 后正好铺满 厚×长 的窗口
-            host.Width = geometry.IsVertical ? geometry.Height : geometry.Width;
-            host.Height = geometry.IsVertical ? geometry.Width : geometry.Height;
-            host.HorizontalAlignment = HorizontalAlignment.Center;
-            host.VerticalAlignment = VerticalAlignment.Center;
-            host.RenderTransform = null;
-            host.LayoutTransform = rotation == 0 ? Transform.Identity : new RotateTransform(rotation);
-        }
+        // 竖直便签：文字内容盒子为 长×厚，LayoutTransform 旋转 ±90° 后正好铺满 厚×长 的窗口
+        NoteTextHost.Width = geometry.IsVertical ? geometry.Height : geometry.Width;
+        NoteTextHost.Height = geometry.IsVertical ? geometry.Width : geometry.Height;
+        NoteTextHost.HorizontalAlignment = HorizontalAlignment.Center;
+        NoteTextHost.VerticalAlignment = VerticalAlignment.Center;
+        NoteTextHost.RenderTransform = null;
+        NoteTextHost.LayoutTransform = rotation == 0 ? Transform.Identity : new RotateTransform(rotation);
     }
 
-    private static Brush BuildMaskBrush(FocusNoteGeometry geometry, bool opaqueAtStart)
+    /// <summary>主题蓝细条贴在便签贴近屏幕边缘的那一侧（水平便签上/下，竖直便签左/右）。</summary>
+    private void ApplyStickyAccentStrip(FocusNoteStripEdge edge)
     {
-        var brush = new LinearGradientBrush
+        NoteAccentStrip.Width = double.NaN;
+        NoteAccentStrip.Height = double.NaN;
+        NoteAccentStrip.Background = StickyStripBrush;
+        switch (edge)
         {
-            StartPoint = new Point(geometry.MaskStartX, geometry.MaskStartY),
-            EndPoint = new Point(geometry.MaskEndX, geometry.MaskEndY)
-        };
-        if (opaqueAtStart)
-        {
-            brush.GradientStops.Add(new GradientStop(Colors.White, 0));
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(0, 255, 255, 255), 1));
+            case FocusNoteStripEdge.Bottom:
+                NoteAccentStrip.HorizontalAlignment = HorizontalAlignment.Stretch;
+                NoteAccentStrip.VerticalAlignment = VerticalAlignment.Bottom;
+                NoteAccentStrip.Height = FocusNoteStickyStyle.StripThickness;
+                break;
+            case FocusNoteStripEdge.Left:
+                NoteAccentStrip.HorizontalAlignment = HorizontalAlignment.Left;
+                NoteAccentStrip.VerticalAlignment = VerticalAlignment.Stretch;
+                NoteAccentStrip.Width = FocusNoteStickyStyle.StripThickness;
+                break;
+            case FocusNoteStripEdge.Right:
+                NoteAccentStrip.HorizontalAlignment = HorizontalAlignment.Right;
+                NoteAccentStrip.VerticalAlignment = VerticalAlignment.Stretch;
+                NoteAccentStrip.Width = FocusNoteStickyStyle.StripThickness;
+                break;
+            default:
+                NoteAccentStrip.HorizontalAlignment = HorizontalAlignment.Stretch;
+                NoteAccentStrip.VerticalAlignment = VerticalAlignment.Top;
+                NoteAccentStrip.Height = FocusNoteStickyStyle.StripThickness;
+                break;
         }
-        else
-        {
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(0, 255, 255, 255), 0));
-            brush.GradientStops.Add(new GradientStop(Color.FromArgb(230, 255, 255, 255), 1));
-        }
-        return brush;
     }
 
     private void ApplyNoteText()
@@ -884,9 +883,6 @@ public partial class TimetablePanelWindow : Window
             NoteLine1.Text = line1;
             NoteLine2.Text = line2;
             NoteLine2.Visibility = string.IsNullOrEmpty(line2) ? Visibility.Collapsed : Visibility.Visible;
-            NoteBlurLine1.Text = line1;
-            NoteBlurLine2.Text = line2;
-            NoteBlurLine2.Visibility = NoteLine2.Visibility;
         }
         catch (Exception ex)
         {
