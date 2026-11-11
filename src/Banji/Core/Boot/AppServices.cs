@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Windows;
 using System.Windows.Threading;
 using Banji.Core.Abstractions;
@@ -17,6 +17,7 @@ using Banji.Core.Schedule;
 using Banji.Core.Settings;
 using Banji.Core.Timers;
 using Banji.Core.Timetable;
+using Banji.Core.Tray;
 using Banji.Core.WeekParityEngine;
 using Banji.Views;
 
@@ -52,6 +53,9 @@ public sealed class AppServices
     public IDutyService Duty { get; }
 
     public PetWindow? PetWindow { get; private set; }
+
+    /// <summary>v1.7.0：托盘图标（屏幕比例变化后把窗口拉回屏幕的入口）。</summary>
+    public TrayService? TrayIcon { get; private set; }
 
     private readonly List<Window> _windows = new();
     private readonly Dictionary<Window, DateTime> _shownAt = new();
@@ -196,6 +200,14 @@ public sealed class AppServices
         PetWindow = new PetWindow();
         Register(PetWindow);
         PetWindow.Show();
+        try
+        {
+            TrayIcon = new TrayService();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("创建托盘图标失败", ex);
+        }
         Clock.Start();
         try { Ai.TryAutoLoad(); }
         catch (Exception ex) { Log.Error("AI 自动加载失败", ex); }
@@ -250,6 +262,16 @@ public sealed class AppServices
 
     public void Shutdown(bool saveData = true)
     {
+        try
+        {
+            TrayIcon?.Dispose();
+            TrayIcon = null;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"释放托盘图标失败：{ex.Message}");
+        }
+
         try
         {
             Clock.Stop();

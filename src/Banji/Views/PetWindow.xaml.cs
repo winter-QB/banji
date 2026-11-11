@@ -724,6 +724,33 @@ public partial class PetWindow : Window
         }
     }
 
+    /// <summary>
+    /// v1.7.0：托盘菜单/屏幕比例变化——显示宠物，并把宠物与课表窗口都拉回工作区。
+    /// </summary>
+    public void BringWindowsBackToScreen()
+    {
+        try
+        {
+            _rightMargin = 24;
+            _bottomMargin = 24;
+            SettingsService.Update(s =>
+            {
+                s.HidePet = false;
+                s.ShowTimetablePanel = true;
+                s.PetRightMargin = _rightMargin;
+                s.PetBottomMargin = _bottomMargin;
+            });
+            ApplyLayout();
+            _timetablePanel?.BringBackToScreen();
+            if (IsVisible) Activate();
+            Log.Info("托盘/屏幕变化：宠物与课表已拉回屏幕");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("把宠物/课表拉回屏幕失败", ex);
+        }
+    }
+
     // =========================================================================
     // 宠物交互
     // =========================================================================
@@ -732,6 +759,7 @@ public partial class PetWindow : Window
     {
         if (_dragging) return;
         CloseMenuIfOpen(false);
+        _timetablePanel?.EnsureBelowPet();
         _dragging = true;
         _dragOriginLeft = Left;
         _dragOriginTop = Top;
@@ -806,14 +834,27 @@ public partial class PetWindow : Window
                 CloseMenuIfOpen(true);
                 return;
             }
-            var anchorRect = IsPetHiddenOrCollapsed ? GetNoticeAnchorRect() : GetPetBodyRect();
+            // v1.7.0：右键菜单锚定鼠标当前屏幕 DIP 坐标（不再固定在宠物头顶）
+            var cursor = GetCursorDip();
             var flyout = AppServices.Current.ShowMenuFlyout();
             _openMenu = flyout;
             flyout.Closed += (_, _) =>
             {
                 if (ReferenceEquals(_openMenu, flyout)) _openMenu = null;
             };
-            flyout.PlaceNear(new Point(anchorRect.Left + anchorRect.Width * 0.5, anchorRect.Top));
+            flyout.PlaceNear(cursor);
+            // ShowMenuFlyout 内部 Loaded 还会 PlaceNear 一次，这里在 Loaded 之后再校正，避免被覆盖
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (flyout.IsVisible) flyout.PlaceNear(cursor);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"校正右键菜单位置失败：{ex.Message}");
+                }
+            }), DispatcherPriority.Loaded);
         }
         catch (Exception ex)
         {
@@ -1049,6 +1090,8 @@ public partial class PetWindow : Window
                           w is not NoticeBubbleWindow && w is not TimetablePanelWindow) == true;
             if (hasOtherTopmost) return;
             NativeMethods.ReassertTopmost(new WindowInteropHelper(this).Handle);
+            // 宠物窗置顶后重新把课表窗压回宠物下方，保证重叠时点击宠物优先
+            _timetablePanel?.EnsureBelowPet();
         }
         catch
         {
@@ -1155,5 +1198,6 @@ public partial class PetWindow : Window
         catch { return fallback; }
     }
 }
+
 
 

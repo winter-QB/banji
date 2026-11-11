@@ -185,6 +185,13 @@ public partial class App : Application
                     Log.Info($"QA：便签自由位置 = ({freeX}, {freeY})");
                 }
                 break;
+            case "tray":
+                Log.Info($"QA：托盘图标 = {(svc.TrayIcon is null ? "未创建" : "已创建")}，宠物窗口 = {(svc.PetWindow is null ? "无" : $"{svc.PetWindow.Left:0},{svc.PetWindow.Top:0}")}");
+                break;
+            case "bring-back":
+                svc.PetWindow?.BringWindowsBackToScreen();
+                Log.Info("QA：已把宠物/课表拉回屏幕");
+                break;
             case "duty":
                 svc.ShowDutyWindow();
                 break;

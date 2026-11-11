@@ -57,6 +57,7 @@ public partial class TimetablePanelWindow : Window
     private double _dragStartLeft;
     private double _dragStartTop;
     private bool _hasWindowPosition;
+    private FrameworkElement? _captureHost;
     private double _windowLeft;
     private double _windowTop;
     private DateTime _lastActivity = DateTime.Now;
@@ -79,6 +80,7 @@ public partial class TimetablePanelWindow : Window
     private (double X, double Y)? _qaFreeOverride;
     private string _noteSignature = "";
     private Rect? _autoPlacePetRect;
+    private bool _forceHaloForQa;
 
     public TimetablePanelWindow()
     {
@@ -92,8 +94,8 @@ public partial class TimetablePanelWindow : Window
 
         Opacity = 0;
 
-        _topmostTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(2) };
-        _topmostTimer.Tick += (_, _) => ReassertTopmost();
+        _topmostTimer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(500) };
+        _topmostTimer.Tick += (_, _) => ReassertBelowPet();
 
         // 整窗拖动（普通态 & Free 便签态）；4px 阈值区分点击
         foreach (var host in new FrameworkElement[] { PanelCard, NoteHost })
@@ -185,6 +187,36 @@ public partial class TimetablePanelWindow : Window
         }
     }
 
+    /// <summary>v1.7.0：托盘菜单/屏幕比例变化——把课表窗口夹回当前工作区并保存位置。</summary>
+    public void BringBackToScreen()
+    {
+        try
+        {
+            if (!IsVisible) Show();
+            UpdateCardSizeIfNeeded();
+            var work = SystemParameters.WorkArea;
+            var w = ActualWidth > 0 ? ActualWidth : Width;
+            var h = ActualHeight > 0 ? ActualHeight : Height;
+            var left = Math.Clamp(Left, work.Left + CardMargin, Math.Max(work.Left + CardMargin, work.Right - CardMargin - w));
+            var top = Math.Clamp(Top, work.Top + CardMargin, Math.Max(work.Top + CardMargin, work.Bottom - CardMargin - h));
+            Left = Math.Round(left);
+            Top = Math.Round(top);
+            _windowLeft = Left;
+            _windowTop = Top;
+            _hasWindowPosition = true;
+            SettingsService.Update(s =>
+            {
+                s.PanelWindowLeft = Left;
+                s.PanelWindowTop = Top;
+            });
+            Log.Info($"课表窗口已拉回屏幕：({Left:0},{Top:0})");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("把课表窗口拉回屏幕失败", ex);
+        }
+    }
+
     public void RefreshNow()
     {
         try
@@ -210,7 +242,7 @@ public partial class TimetablePanelWindow : Window
             var handle = new WindowInteropHelper(this).Handle;
             NativeMethods.SetToolWindow(handle, true);
             NativeMethods.SetNoActivate(handle, true);
-            NativeMethods.ReassertTopmost(handle);
+            ReassertBelowPet();
         }
         catch (Exception ex)
         {
@@ -226,12 +258,15 @@ public partial class TimetablePanelWindow : Window
         {
             LoadPreviewTime();
             LoadQaNoteOverrides();
+            LoadQaHaloOverride();
+            ApplyPanelHalo();
             _hasWindowPosition = false;
             _snapshot = GetLiveSnapshot();
             RefreshAll(force: true);
             ApplyPanelMode();
             SubscribeServices();
             _topmostTimer.Start();
+            ReassertBelowPet();
             AnimateIn();
         }
         catch (Exception ex)
@@ -318,6 +353,7 @@ public partial class TimetablePanelWindow : Window
         var focus = settings.AutoSimplifyTimetableDuringClass && ClassFocusMode.IsInClassFocus(_snapshot);
         if (focus == _focusActive) return;
         _focusActive = focus;
+        ApplyPanelHalo();
         ApplyPanelMode();
         RefreshAll(force: true);
         Log.Info(focus ? "课表进入专注便签态" : "课表退出专注便签态，恢复原位置/白底");
@@ -385,9 +421,22 @@ public partial class TimetablePanelWindow : Window
         {
             e.Handled = true;
             TouchActivity();
+            // v1.7.0：右键菜单锚定鼠标当前屏幕 DIP 坐标（不再用窗口固定点/宠物头顶）
+            var cursor = GetCursorDip();
             var flyout = AppServices.Current.ShowMenuFlyout();
-            flyout.Closed += (_, _) => { };
-            flyout.PlaceNear(new Point(Left + ActualWidth * 0.5, Top));
+            flyout.PlaceNear(cursor);
+            // ShowMenuFlyout 内部 Loaded 还会 PlaceNear 一次，这里在 Loaded 之后再校正，避免被覆盖
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (flyout.IsVisible) flyout.PlaceNear(cursor);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warn($"校正右键菜单位置失败：{ex.Message}");
+                }
+            }), DispatcherPriority.Loaded);
         }
         catch (Exception ex)
         {
@@ -428,7 +477,7 @@ public partial class TimetablePanelWindow : Window
 
     private void OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (_focusActive && CurrentPlacement() != FocusNotePlacement.Free && !_qaFreeOverride.HasValue) return;
+        if (!TimetablePanelPolicy.CanDragPanel(_focusActive, CurrentPlacement(), _qaFreeOverride.HasValue)) return;
         _dragCandidate = true;
         _dragging = false;
         _suppressClick = false;
@@ -436,6 +485,8 @@ public partial class TimetablePanelWindow : Window
         _dragStartLeft = Left;
         _dragStartTop = Top;
         TouchActivity();
+        // 点击面板不允许把面板抬到宠物窗口上方
+        Dispatcher.BeginInvoke(new Action(ReassertBelowPet), DispatcherPriority.Input);
     }
 
     private void OnPreviewMouseMove(object sender, MouseEventArgs e)
@@ -454,7 +505,8 @@ public partial class TimetablePanelWindow : Window
             {
                 if (!PanelDragMath.ExceedsThreshold(dx, dy)) return;
                 _dragging = true;
-                try { ((FrameworkElement)sender).CaptureMouse(); } catch { /* ignore */ }
+                _captureHost = sender as FrameworkElement;
+                try { _captureHost?.CaptureMouse(); } catch { /* ignore */ }
             }
             Left = Math.Round(_dragStartLeft + dx);
             Top = Math.Round(_dragStartTop + dy);
@@ -469,7 +521,12 @@ public partial class TimetablePanelWindow : Window
 
     private void OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_dragging) { _dragCandidate = false; return; }
+        if (!_dragging)
+        {
+            _dragCandidate = false;
+            Dispatcher.BeginInvoke(new Action(ReassertBelowPet), DispatcherPriority.Input);
+            return;
+        }
         _suppressClick = true;
         e.Handled = true;
         EndDrag(cancel: false);
@@ -482,7 +539,7 @@ public partial class TimetablePanelWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (!_dragging) return;
-            try { PanelCard.CaptureMouse(); } catch { /* ignore */ }
+            try { _captureHost?.CaptureMouse(); } catch { /* ignore */ }
         }), DispatcherPriority.Input);
     }
 
@@ -491,7 +548,17 @@ public partial class TimetablePanelWindow : Window
         _dragCandidate = false;
         var moved = _dragging;
         _dragging = false;
-        try { ReleaseMouseCapture(); } catch { /* ignore */ }
+        // v1.7.0：必须释放拖动宿主的鼠标捕获；否则之后点宠物的事件仍会被面板劫持（表现为“拖宠物却动课表”）
+        try
+        {
+            _captureHost?.ReleaseMouseCapture();
+            if (Mouse.Captured is not null) Mouse.Capture(null);
+        }
+        catch { /* ignore */ }
+        _captureHost = null;
+        // v1.7.0：拖动会通过鼠标激活把窗口抬到 topmost 组顶部，结束后立即压回宠物下方
+        ReassertBelowPet();
+        Dispatcher.BeginInvoke(new Action(ReassertBelowPet), DispatcherPriority.Background);
         if (!moved) return;
 
         var work = SystemParameters.WorkArea;
@@ -563,6 +630,7 @@ public partial class TimetablePanelWindow : Window
             }
 
             if (!IsVisible) Show();
+            ReassertBelowPet();
 
             if (_focusActive)
             {
@@ -1250,10 +1318,81 @@ public partial class TimetablePanelWindow : Window
         return AppServices.Current.Clock.Current ?? ScheduleSnapshot.Empty(DateTime.Now);
     }
 
-    private void ReassertTopmost()
+    /// <summary>
+    /// v1.7.0：课表窗永远插到宠物窗下方（两窗都 Topmost；用 SetWindowPos insertAfter=宠物窗句柄）。
+    /// 这样两窗重叠时鼠标命中优先宠物，拖宠物不会被课表窗透明区域截获。
+    /// </summary>
+    public void EnsureBelowPet() => ReassertBelowPet();
+
+    private void ReassertBelowPet()
     {
-        try { NativeMethods.ReassertTopmost(new WindowInteropHelper(this).Handle); }
-        catch { /* ignore */ }
+        try
+        {
+            var handle = new WindowInteropHelper(this).Handle;
+            if (handle == IntPtr.Zero) return;
+            var petWindow = AppServices.Current.PetWindow;
+            var petHandle = petWindow is null ? IntPtr.Zero : new WindowInteropHelper(petWindow).Handle;
+            if (petHandle == IntPtr.Zero)
+            {
+                NativeMethods.ReassertTopmost(handle);
+                return;
+            }
+            NativeMethods.SetWindowPos(handle, petHandle, 0, 0, 0, 0,
+                NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE |
+                NativeMethods.SWP_NOOWNERZORDER);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"把课表窗口压到宠物窗下方失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>QA：BANJI_PANEL_FORCE_HALO=1 复现 v1.6 白卡黑边 bug 用于前后对比截图。</summary>
+    private void LoadQaHaloOverride()
+    {
+        try
+        {
+            _forceHaloForQa = string.Equals(
+                Environment.GetEnvironmentVariable("BANJI_PANEL_FORCE_HALO"), "1", StringComparison.Ordinal);
+            if (_forceHaloForQa) Log.Info("QA：强制开启 Halo（复现白卡黑边）");
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"读取 QA Halo 覆盖失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>v1.7.0：白卡/便签都关闭 Halo 黑色光晕/描边（白卡是深色字，开着会糊成黑边）。</summary>
+    private void ApplyPanelHalo()
+    {
+        try
+        {
+            var surface = _focusActive ? TimetablePanelSurface.FocusNote : TimetablePanelSurface.WhiteCard;
+            var enabled = _forceHaloForQa || TimetablePanelPolicy.ShouldEnableHalo(surface);
+            foreach (var halo in EnumeratePanelHaloControls())
+            {
+                switch (halo)
+                {
+                    case HaloTextLine line: line.HaloEnabled = enabled; break;
+                    case HaloTextStack stack: stack.HaloEnabled = enabled; break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"切换课表 Halo 失败：{ex.Message}");
+        }
+    }
+
+    private IEnumerable<FrameworkElement> EnumeratePanelHaloControls()
+    {
+        yield return WeekHeaderLine;
+        yield return TopTaskBody;
+        yield return TimetableTitle;
+        yield return TimetableBody;
+        yield return TimetableEmpty;
+        yield return DutyLine;
+        yield return InfoBody;
     }
 
     private static ISettingsService SettingsService => AppServices.Current.Settings;
@@ -1281,6 +1420,9 @@ public partial class TimetablePanelWindow : Window
         catch { return fallback; }
     }
 }
+
+
+
 
 
 

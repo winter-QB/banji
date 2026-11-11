@@ -21,7 +21,8 @@
     <Canvas x:Name="RootCanvas" ClipToBounds="False">
 
         <!-- ① 普通态：白底卡片（窗口尺寸 = 卡片 × PanelScale + 阴影边距） -->
-        <Grid x:Name="CardMarginHost" HorizontalAlignment="Left" VerticalAlignment="Top" Background="Transparent">
+        <!-- v1.7.0：根 Canvas / 阴影边距不得拦截鼠标（Background=null），命中测试只落在可见卡片/便签上 -->
+        <Grid x:Name="CardMarginHost" HorizontalAlignment="Left" VerticalAlignment="Top">
             <Grid.LayoutTransform>
                 <ScaleTransform x:Name="PanelScaleTransform" ScaleX="1" ScaleY="1" />
             </Grid.LayoutTransform>
@@ -77,7 +78,7 @@
         </Grid>
 
         <!-- ② 专注态：贴边便签（清晰层靠边端、模糊层向中央渐弱，见 TimetablePanelWindow.xaml.cs） -->
-        <Grid x:Name="NoteHost" Visibility="Collapsed" Background="Transparent" Cursor="SizeAll">
+        <Grid x:Name="NoteHost" Visibility="Collapsed" Cursor="SizeAll">
             <!-- 压暗层 + 清晰文字（整体从贴边端 1 → 中央端 0 渐隐） -->
             <Grid x:Name="NoteClearLayer" Background="Transparent">
                 <Border x:Name="NoteDimBorder" CornerRadius="12" />
