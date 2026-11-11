@@ -303,6 +303,7 @@ public partial class SettingsWindow
         return SectionFrame("宠物", "宠物形象大小、课表大小、颜色、动画与陪伴养成。课表位置改为直接用鼠标拖动（自动保存）；新增“上课专注”自动隐藏/简化。",
             BuildScaleAndPositionCard(s),
             BuildClassFocusCard(s),
+            BuildFocusNoteStyleCard(s),
             Card(
                 ColorRow("身体颜色", "默认雾蓝色 #8FB6F2（第二轮：方形、扁扁的小方块）。", s.Pet.BodyColor, "#8FB6F2",
                     v => Settings.Update(x => x.Pet.BodyColor = v)),
@@ -349,19 +350,19 @@ public partial class SettingsWindow
                 v => Settings.Update(x => x.PanelScale = Math.Round(v, 3))),
             Divider(),
             Row("课表位置",
-                "课表可以直接用鼠标拖动调整位置（自动保存），不再需要在设置里调数值。",
+                "课表是独立窗口，可直接用鼠标拖动到任意位置（自动保存），与宠物互不影响。",
                 new TextBlock
                 {
-                    Text = "直接拖动课表即可移动，松手后自动记住位置",
+                    Text = "直接拖动课表即可移动，松手后自动记住位置；宠物与课表互不影响",
                     FontFamily = FontRegular,
                     FontSize = 12.5,
                     Foreground = BrandBrush,
                     TextWrapping = TextWrapping.Wrap,
-                    MaxWidth = 280,
+                    MaxWidth = 300,
                     VerticalAlignment = VerticalAlignment.Center
                 }),
             Divider(),
-            Row("恢复默认", "宠物形象大小 = 1，课表大小 = 1，课表位置 = 0（回到默认位置）。", restoreButton)
+            Row("恢复默认", "宠物形象大小 = 1，课表大小 = 1；课表位置回到自动位置；专注便签样式恢复默认。", restoreButton)
         );
     }
 
@@ -375,7 +376,7 @@ public partial class SettingsWindow
                 Toggle(s.AutoHidePetDuringClass, v => Settings.Update(x => x.AutoHidePetDuringClass = v))),
             Divider(),
             Row("上课自动简化课表",
-                "上课期间自动去掉课表白底、折叠课表并降低不透明度。默认开启。",
+                "上课期间自动去掉课表白底、折叠课表并降低不透明度；课表会变成贴在屏幕边缘的专注便签。默认开启。",
                 Toggle(s.AutoSimplifyTimetableDuringClass, v => Settings.Update(x => x.AutoSimplifyTimetableDuringClass = v))),
             Divider(),
             FullRow("说明", null, new TextBlock
@@ -390,6 +391,182 @@ public partial class SettingsWindow
             }));
     }
 
+    /// <summary>v1.6.0：专注便签样式（9 种贴边位置 + 长度/压暗/模糊）。</summary>
+    private FrameworkElement BuildFocusNoteStyleCard(AppSettings s)
+    {
+        var placementPanel = new Grid();
+        placementPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        placementPanel.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        for (var i = 0; i < 4; i++)
+            placementPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        placementPanel.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var options = new (FocusNotePlacement Value, string Title, string Desc, bool Horizontal, bool Right, bool Bottom)[]
+        {
+            (FocusNotePlacement.TopLeftHorizontal, "左上角", "水平 · 贴左上向右", true, false, false),
+            (FocusNotePlacement.TopLeftVertical, "上左角", "竖直 · 贴左上向下", false, false, false),
+            (FocusNotePlacement.BottomLeftHorizontal, "左下角", "水平 · 贴左下向右", true, false, true),
+            (FocusNotePlacement.BottomLeftVertical, "下左角", "竖直 · 贴左下向上", false, false, true),
+            (FocusNotePlacement.TopRightHorizontal, "右上角", "水平 · 贴右上向左", true, true, false),
+            (FocusNotePlacement.TopRightVertical, "上右角", "竖直 · 贴右上向下", false, true, false),
+            (FocusNotePlacement.BottomRightHorizontal, "右下角", "水平 · 贴右下向左", true, true, true),
+            (FocusNotePlacement.BottomRightVertical, "下右角", "竖直 · 贴右下向上", false, true, true)
+        };
+
+        for (var i = 0; i < options.Length; i++)
+        {
+            var option = options[i];
+            var radio = FocusNotePlacementOption(option.Value, option.Title, option.Desc,
+                option.Horizontal, option.Right, option.Bottom, s.FocusNotePlacement);
+            Grid.SetColumn(radio, i % 2);
+            Grid.SetRow(radio, i / 2);
+            placementPanel.Children.Add(radio);
+        }
+        var freeRadio = FocusNotePlacementOption(FocusNotePlacement.Free, "自由拖动",
+            "专注时手动拖动便签到任意位置", false, false, false, s.FocusNotePlacement);
+        Grid.SetColumn(freeRadio, 0);
+        Grid.SetColumnSpan(freeRadio, 2);
+        Grid.SetRow(freeRadio, 4);
+        placementPanel.Children.Add(freeRadio);
+
+        var placementHint = new TextBlock
+        {
+            Text = "位置说明：左上角/右上角/左下角/右下角为“水平便签”，上左角/上右角/下左角/下右角为“竖直便签”。",
+            FontFamily = FontRegular,
+            FontSize = 11.5,
+            Foreground = TextTertiary,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 6, 0, 0)
+        };
+
+        return Card(
+            SectionCardTitle("专注便签样式"),
+            Row("便签贴边位置",
+                "专注时课表变成贴边便签：9 种位置任选，宠物与课表是独立窗口，互不联动。",
+                new StackPanel
+                {
+                    Children = { placementPanel, placementHint }
+                }),
+            Divider(),
+            SliderRow("便签长度",
+                "沿屏幕边缘方向的长度（占屏幕宽/高的百分比，20~80%，默认 35%）。",
+                20, 80, Math.Clamp(s.FocusNoteLengthPercent, 20, 80), 1, v => $"{(int)Math.Round(v)}%",
+                v => Settings.Update(x => x.FocusNoteLengthPercent = (int)Math.Round(v))),
+            Divider(),
+            SliderRow("压暗强度",
+                "便签背景压暗屏幕的程度（0~40%，默认 12%）。越大越不干扰，0 = 不压暗。",
+                0, 40, Math.Clamp(s.FocusNoteDimPercent, 0, 40), 1, v => $"{(int)Math.Round(v)}%",
+                v => Settings.Update(x => x.FocusNoteDimPercent = (int)Math.Round(v))),
+            Divider(),
+            SliderRow("边缘模糊",
+                "便签向屏幕中央渐弱的高斯模糊半径（0~24，默认 10）。0 = 不模糊。",
+                0, 24, Math.Clamp(s.FocusNoteBlurRadius, 0, 24), 1, v => $"{(int)Math.Round(v)}",
+                v => Settings.Update(x => x.FocusNoteBlurRadius = (int)Math.Round(v))),
+            Divider(),
+            FullRow("说明", null, new TextBlock
+            {
+                Text = "专注时课表变成贴边便签，宠物与课表是独立窗口、互不联动；选择“自由拖动”可在专注时直接拖到任意位置。" +
+                       "改动立即生效并自动保存；恢复默认样式在上方「恢复默认大小与位置」按钮里。",
+                FontFamily = FontRegular,
+                FontSize = 11.5,
+                Foreground = TextTertiary,
+                TextWrapping = TextWrapping.Wrap,
+                LineHeight = 20
+            }));
+    }
+
+    /// <summary>专注便签位置单选项（带方向小图标）。</summary>
+    private RadioButton FocusNotePlacementOption(
+        FocusNotePlacement value, string title, string desc,
+        bool horizontal, bool right, bool bottom, FocusNotePlacement current)
+    {
+        var radio = new RadioButton
+        {
+            GroupName = "FocusNotePlacement",
+            IsChecked = value == current,
+            Cursor = System.Windows.Input.Cursors.Hand,
+            Margin = new Thickness(0, 3, 12, 3),
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Content = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Children =
+                {
+                    BuildPlacementIcon(horizontal, right, bottom, value == FocusNotePlacement.Free),
+                    new StackPanel
+                    {
+                        Margin = new Thickness(5, 0, 0, 0),
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = title,
+                                FontFamily = FontMedium,
+                                FontSize = 12.5,
+                                Foreground = TextPrimary
+                            },
+                            new TextBlock
+                            {
+                                Text = desc,
+                                FontFamily = FontRegular,
+                                FontSize = 10.5,
+                                Foreground = TextTertiary
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        radio.Checked += (_, _) => Settings.Update(x => x.FocusNotePlacement = value);
+        return radio;
+    }
+
+    /// <summary>画一个 30×22 的屏幕示意图：边框代表屏幕，朝向对应角的小条代表便签。</summary>
+    private FrameworkElement BuildPlacementIcon(bool horizontal, bool right, bool bottom, bool free)
+    {
+        var frame = new Grid { Width = 30, Height = 22, Margin = new Thickness(0, 0, 8, 0) };
+        frame.Children.Add(new Border
+        {
+            BorderBrush = TextTertiary,
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(3),
+            Opacity = 0.65
+        });
+        if (free)
+        {
+            var freeGrid = new Grid { Margin = new Thickness(6) };
+            for (var row = 0; row < 2; row++)
+            for (var col = 0; col < 2; col++)
+            {
+                var dot = new Border
+                {
+                    Width = 4,
+                    Height = 4,
+                    CornerRadius = new CornerRadius(2),
+                    Background = BrandBrush,
+                    HorizontalAlignment = col == 0 ? HorizontalAlignment.Left : HorizontalAlignment.Right,
+                    VerticalAlignment = row == 0 ? VerticalAlignment.Top : VerticalAlignment.Bottom
+                };
+                freeGrid.Children.Add(dot);
+            }
+            frame.Children.Add(freeGrid);
+            return frame;
+        }
+
+        var bar = new Border
+        {
+            Background = BrandBrush,
+            Width = horizontal ? 16 : 6,
+            Height = horizontal ? 6 : 16,
+            CornerRadius = new CornerRadius(2),
+            HorizontalAlignment = right ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+            VerticalAlignment = bottom ? VerticalAlignment.Bottom : VerticalAlignment.Top,
+            Margin = new Thickness(3)
+        };
+        frame.Children.Add(bar);
+        return frame;
+    }
+
     private void OnRestoreScaleAndPosition()
     {
         Guard("恢复默认大小与位置", () =>
@@ -401,8 +578,17 @@ public partial class SettingsWindow
                 x.PanelOffsetX = 0;
                 x.PanelOffsetY = 0;
                 x.UiScale = 1; // 历史字段兼容
+                // v1.6.0：课表独立窗口位置清空（恢复自动位置）+ 专注便签恢复默认样式
+                x.PanelWindowLeft = null;
+                x.PanelWindowTop = null;
+                x.FocusNotePlacement = FocusNotePlacement.TopLeftHorizontal;
+                x.FocusNoteLengthPercent = 35;
+                x.FocusNoteDimPercent = 12;
+                x.FocusNoteBlurRadius = 10;
+                x.FocusNoteFreeLeft = null;
+                x.FocusNoteFreeTop = null;
             });
-            Info("已恢复默认大小与位置。");
+            Info("已恢复默认大小、课表自动位置与专注便签默认样式。");
             RebuildSection("pet");
         });
     }

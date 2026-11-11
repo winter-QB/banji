@@ -1,4 +1,4 @@
-using Banji.Core.Models;
+﻿using Banji.Core.Models;
 
 namespace Banji.Core.Settings;
 
@@ -83,6 +83,22 @@ public sealed class AppSettings
     public bool AutoHidePetDuringClass { get; set; } = true;
     /// <summary>上课后 30 秒至下课前 30 秒自动去掉课表白底、折叠课表并降低不透明度。</summary>
     public bool AutoSimplifyTimetableDuringClass { get; set; } = true;
+
+    // ---------------- v1.6.0：宠物/课表独立窗口 + 专注便签 ----------------
+    /// <summary>课表独立窗口位置（屏幕 DIP，null = 首次自动放到宠物上方）。拖动课表时写入。</summary>
+    public double? PanelWindowLeft { get; set; }
+    public double? PanelWindowTop { get; set; }
+    /// <summary>上课专注便签的吸附位置（4 角 × 水平/竖直 + 自由）。</summary>
+    public FocusNotePlacement FocusNotePlacement { get; set; } = FocusNotePlacement.TopLeftHorizontal;
+    /// <summary>专注便签长度（占屏幕宽/高的百分比，20~80）。</summary>
+    public int FocusNoteLengthPercent { get; set; } = 35;
+    /// <summary>专注便签背景压暗强度（0~40%）。</summary>
+    public int FocusNoteDimPercent { get; set; } = 12;
+    /// <summary>专注便签向屏幕中央渐弱的高斯模糊半径（0~24）。</summary>
+    public int FocusNoteBlurRadius { get; set; } = 10;
+    /// <summary>自由拖动便签位置（DIP，null = 默认右下）；仅 FocusNotePlacement=Free 使用。</summary>
+    public double? FocusNoteFreeLeft { get; set; }
+    public double? FocusNoteFreeTop { get; set; }
     /// <summary>宠物距屏幕右边缘的偏移（px，缩放前基准单位）。</summary>
     public double PetRightMargin { get; set; } = 0;
     /// <summary>宠物距工作区底部的偏移（px）。</summary>
@@ -136,6 +152,9 @@ public sealed class AppSettings
         PetIdleCollapseMinutes = Math.Clamp(PetIdleCollapseMinutes, 0, 240);
         TimetableIdleFoldMinutes = Math.Clamp(TimetableIdleFoldMinutes, 0, 240);
         NoticeBubbleHoldSeconds = Math.Clamp(NoticeBubbleHoldSeconds, 2, 30);
+        FocusNoteLengthPercent = Math.Clamp(FocusNoteLengthPercent, 20, 80);
+        FocusNoteDimPercent = Math.Clamp(FocusNoteDimPercent, 0, 40);
+        FocusNoteBlurRadius = Math.Clamp(FocusNoteBlurRadius, 0, 24);
         ClassDurationMinutes = Math.Clamp(ClassDurationMinutes, 1, 600);
         BellOffsetSeconds = Math.Clamp(BellOffsetSeconds, -60, 60);
         NoticeDurationSeconds = Math.Clamp(NoticeDurationSeconds, 1, 60);

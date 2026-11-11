@@ -168,6 +168,23 @@ public partial class App : Application
             case "focus-mode":
                 Log.Info($"QA：课堂专注模式 = {svc.PetWindow?.IsClassFocusActive}，功能区展开 = {svc.PetWindow?.IsFunctionsExpanded}");
                 break;
+            case "focus-note":
+            {
+                var s = svc.Settings.Current;
+                Log.Info($"QA：专注便签 placement={s.FocusNotePlacement} len={s.FocusNoteLengthPercent}% dim={s.FocusNoteDimPercent}% blur={s.FocusNoteBlurRadius} free=({s.FocusNoteFreeLeft?.ToString() ?? "-"}, {s.FocusNoteFreeTop?.ToString() ?? "-"}) panel=({s.PanelWindowLeft?.ToString() ?? "-"}, {s.PanelWindowTop?.ToString() ?? "-"})");
+                break;
+            }
+            case "focus-note-free":
+                if (args.Length > 2 && double.TryParse(args[1], out var freeX) && double.TryParse(args[2], out var freeY))
+                {
+                    AppServices.RunOnUi(() => svc.Settings.Update(x =>
+                    {
+                        x.FocusNoteFreeLeft = freeX;
+                        x.FocusNoteFreeTop = freeY;
+                    }));
+                    Log.Info($"QA：便签自由位置 = ({freeX}, {freeY})");
+                }
+                break;
             case "duty":
                 svc.ShowDutyWindow();
                 break;
@@ -327,9 +344,13 @@ public partial class App : Application
                             {
                                 case "petscale": x.PetScale = settingValue; break;
                                 case "panelscale": x.PanelScale = settingValue; break;
-                                case "panelx": x.PanelOffsetX = settingValue; break;
-                                case "panely": x.PanelOffsetY = settingValue; break;
+                                case "panelx": x.PanelWindowLeft = settingValue; break;
+                                case "panely": x.PanelWindowTop = settingValue; break;
                                 case "uiscale": x.UiScale = settingValue; break;
+                                case "focusnote": x.FocusNotePlacement = (FocusNotePlacement)Math.Clamp((int)settingValue, 0, 8); break;
+                                case "focusnotelen": x.FocusNoteLengthPercent = (int)settingValue; break;
+                                case "focusnotedim": x.FocusNoteDimPercent = (int)settingValue; break;
+                                case "focusnoteblur": x.FocusNoteBlurRadius = (int)settingValue; break;
                                 case "hidepet": x.HidePet = settingValue > 0.5; break;
                                 case "hidetable": x.ShowTimetablePanel = settingValue <= 0.5; break;
                                 case "petidle": x.PetIdleCollapseMinutes = (int)settingValue; break;

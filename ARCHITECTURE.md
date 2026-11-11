@@ -307,3 +307,13 @@ INotificationService Notices;   // 全屏上下课提示/计时器超时
 | `features-ui` | `Views/SettingsWindow.*`（两个专注开关、去掉课表位置滑块、文案）、`Tests/SettingsV15*` |
 | `packaging` | v1.5.0 README/RELEASE_NOTES/构建/桌面发布夹（等信号） |
 禁止改共享文件（Settings/Models/Abstractions/Boot/App.xaml*/csproj/Resources）；需要改先找 Lead。
+
+## 15. v1.6.0 契约（2026-11-11）
+
+用户要求：① 课表与宠物**彻底分开**（拖课表时宠物不能抽动；各自拖动/隐藏/折叠，像两个独立宠物）；② 上课专注态课表改为**贴屏幕边角的便签**：8 种角/方向（左上角、上左角、左下角、下左角、右上角、上右角、右下角、下右角）+ 自由拖动 = 9 种可改样式；便签为一条沿边“横杠”，靠边端实、向屏幕中央渐弱（渐变模糊），背景极弱压暗，字体沿用，实时渲染。
+
+- `AppSettings` 新增：`PanelWindowLeft/Top`（课表独立窗口位置 DIP，null=自动）、`FocusNotePlacement`（枚举，4 角 × 水平/竖直 + Free）、`FocusNoteLengthPercent`(20~80，默认35)、`FocusNoteDimPercent`(0~40，默认12)、`FocusNoteBlurRadius`(0~24，默认10)、`FocusNoteFreeLeft/Top`。
+- 枚举 `FocusNotePlacement` 定义在 `Core/Models/Timetable.cs`：`TopLeftHorizontal/TopLeftVertical/BottomLeftHorizontal/BottomLeftVertical/TopRightHorizontal/TopRightVertical/BottomRightHorizontal/BottomRightVertical/Free`（依次对应左上角、上左角、左下角、下左角、右上角、上右角、右下角、下右角、自由拖动）。
+- 新窗口 `Views/TimetablePanelWindow.*`：课表/白卡/折叠/值日/放学后/专注便签/拖动/缩放全部迁入；PetWindow 只保留宠物本体/三角/功能区/把手/气泡锚点，窗口尺寸不再包含课表。面板窗口由 PetWindow 创建持有。
+- 版本：**v1.6.0**（MINOR：窗口架构变化 + 新交互）。
+- 作用域：pet-ui（PetWindow/TimetablePanelWindow/MenuFlyout/Controls/Tests）、features-ui（SettingsWindow 的 9 位置选择与参数、文案、Tests）、packaging（文档/构建）。

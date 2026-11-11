@@ -1,0 +1,115 @@
+<Window x:Class="Banji.Views.TimetablePanelWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:pet="clr-namespace:Banji.Controls.Pet"
+        Title="BanjiTimetable"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="{x:Null}"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        ResizeMode="NoResize"
+        WindowStartupLocation="Manual"
+        Width="260" Height="320"
+        FontFamily="{StaticResource Font.Regular}"
+        SnapsToDevicePixels="True"
+        UseLayoutRounding="True"
+        TextOptions.TextFormattingMode="Ideal">
+
+    <!-- v1.6.0：课表独立窗口（从 PetWindow 拆出）。普通态 = 白底圆角卡片；专注态 = 贴边便签（渐变模糊）。 -->
+    <Canvas x:Name="RootCanvas" ClipToBounds="False">
+
+        <!-- ① 普通态：白底卡片（窗口尺寸 = 卡片 × PanelScale + 阴影边距） -->
+        <Grid x:Name="CardMarginHost" HorizontalAlignment="Left" VerticalAlignment="Top" Background="Transparent">
+            <Grid.LayoutTransform>
+                <ScaleTransform x:Name="PanelScaleTransform" ScaleX="1" ScaleY="1" />
+            </Grid.LayoutTransform>
+            <Border x:Name="PanelCard" CornerRadius="14" MinWidth="120" MaxWidth="196" Background="#F5FFFFFF"
+                    BorderBrush="#14000000" BorderThickness="1" Padding="14" Cursor="SizeAll"
+                    ToolTip="按住空白处可拖动课表">
+                <Border.Effect>
+                    <DropShadowEffect Color="#16305C" BlurRadius="18" ShadowDepth="3" Direction="270" Opacity="0.20" />
+                </Border.Effect>
+                <Grid>
+                    <StackPanel x:Name="PanelStack" MinWidth="120">
+                        <pet:HaloTextLine x:Name="WeekHeaderLine" Height="15" Margin="0,0,0,4" Visibility="Collapsed" />
+                        <pet:HaloTextStack x:Name="TopTaskBody" RowHeight="19" LineSpacing="0" Margin="0,0,0,4"
+                                           Visibility="Collapsed" />
+                        <StackPanel x:Name="TimetableSection">
+                            <pet:HaloTextLine x:Name="TimetableTitle" Height="16" Margin="0,0,0,5" />
+                            <pet:HaloTextStack x:Name="TimetableBody" RowHeight="21" LineSpacing="1" />
+                            <pet:HaloTextLine x:Name="TimetableEmpty" Height="18" Visibility="Collapsed" />
+                        </StackPanel>
+                        <Border x:Name="DutyLineHost" Background="Transparent" Margin="0,4,0,0" Visibility="Collapsed"
+                                Cursor="Hand" MouseLeftButtonUp="OnDutyLineClick" ToolTip="打开值日与轮值">
+                            <pet:HaloTextLine x:Name="DutyLine" Height="16" />
+                        </Border>
+                        <pet:HaloTextStack x:Name="InfoBody" LineSpacing="2" Margin="0,9,0,0" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="FoldedCard" MinWidth="120" Visibility="Collapsed" Background="Transparent"
+                                Cursor="Hand" MouseLeftButtonUp="OnFoldedCardClick" ToolTip="点击展开课表">
+                        <TextBlock x:Name="FoldedTopTask" Text="" Margin="0,0,0,3" Visibility="Collapsed"
+                                   FontFamily="{StaticResource Font.Medium}" FontSize="11"
+                                   Foreground="#2F6BD8" TextTrimming="CharacterEllipsis" />
+                        <Grid>
+                            <TextBlock x:Name="FoldedLabel" Text="下节"
+                                       FontFamily="{StaticResource Font.Medium}" FontSize="10.5"
+                                       Foreground="#317FFF" VerticalAlignment="Center" />
+                            <TextBlock x:Name="FoldedRightText" Text="点击展开" HorizontalAlignment="Right"
+                                       VerticalAlignment="Center"
+                                       FontFamily="{StaticResource Font.Light}" FontSize="9" Foreground="#A2ABBB" />
+                        </Grid>
+                        <TextBlock x:Name="FoldedMain" Text="—" Margin="0,2,0,0"
+                                   FontFamily="{StaticResource Font.Bold}" FontWeight="Bold" FontSize="15"
+                                   Foreground="#1F2329" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="FoldedSecondary" Text="" Margin="0,1,0,0" Visibility="Collapsed"
+                                   FontFamily="{StaticResource Font.Light}" FontSize="10.5"
+                                   Foreground="#6B7280" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="FoldedDuty" Text="" Margin="0,3,0,0" Visibility="Collapsed"
+                                   FontFamily="{StaticResource Font.Light}" FontSize="10.5" Foreground="#4A6FA5"
+                                   TextTrimming="CharacterEllipsis" Cursor="Hand"
+                                   MouseLeftButtonUp="OnFoldedDutyClick" ToolTip="打开值日与轮值" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <!-- ② 专注态：贴边便签（清晰层靠边端、模糊层向中央渐弱，见 TimetablePanelWindow.xaml.cs） -->
+        <Grid x:Name="NoteHost" Visibility="Collapsed" Background="Transparent" Cursor="SizeAll">
+            <!-- 压暗层 + 清晰文字（整体从贴边端 1 → 中央端 0 渐隐） -->
+            <Grid x:Name="NoteClearLayer" Background="Transparent">
+                <Border x:Name="NoteDimBorder" CornerRadius="12" />
+                <Grid x:Name="NoteClearTextHost">
+                    <StackPanel x:Name="NoteClearTextPanel" VerticalAlignment="Center" Margin="16,10,16,10">
+                        <TextBlock x:Name="NoteLine1" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                                   FontSize="16" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis" />
+                        <TextBlock x:Name="NoteLine2" FontFamily="{StaticResource Font.Light}" FontSize="11"
+                                   Foreground="#E6FFFFFF" TextTrimming="CharacterEllipsis" Margin="0,3,0,0" />
+                    </StackPanel>
+                </Grid>
+            </Grid>
+
+            <!-- 模糊层（靠边端透明、向中央端渐显模糊文字） -->
+            <Grid x:Name="NoteBlurLayer" Background="Transparent">
+                <Grid x:Name="NoteBlurTextHost">
+                    <StackPanel x:Name="NoteBlurTextPanel" VerticalAlignment="Center" Margin="16,10,16,10">
+                        <TextBlock x:Name="NoteBlurLine1" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                                   FontSize="16" Foreground="#FFFFFF" TextTrimming="CharacterEllipsis">
+                            <TextBlock.Effect>
+                                <BlurEffect Radius="10" RenderingBias="Quality" />
+                            </TextBlock.Effect>
+                        </TextBlock>
+                        <TextBlock x:Name="NoteBlurLine2" FontFamily="{StaticResource Font.Light}" FontSize="11"
+                                   Foreground="#E6FFFFFF" TextTrimming="CharacterEllipsis" Margin="0,3,0,0">
+                            <TextBlock.Effect>
+                                <BlurEffect Radius="10" RenderingBias="Quality" />
+                            </TextBlock.Effect>
+                        </TextBlock>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Grid>
+    </Canvas>
+</Window>

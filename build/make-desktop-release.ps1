@@ -15,11 +15,11 @@
       powershell -ExecutionPolicy Bypass -File build\make-desktop-release.ps1 -ChineseNames
 
     输出目录（默认桌面）：
-      班机Releases\班机 v1.5.0 Release\
-      ├─ Banji-Setup-1.5.0.exe
-      ├─ Banji-Portable-1.5.0.zip
+      班机Releases\班机 v1.6.0 Release\
+      ├─ Banji-Setup-1.6.0.exe
+      ├─ Banji-Portable-1.6.0.zip
       ├─ README.md
-      ├─ RELEASE_NOTES-v1.5.0.md
+      ├─ RELEASE_NOTES-v1.6.0.md
       ├─ LICENSE.txt
       ├─ SHA256SUMS.txt
       ├─ VERSION.txt
@@ -36,7 +36,7 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 # ---- 版本号：以主工程 csproj 为准 -------------------------------------------------
-$version = "1.5.0"
+$version = "1.6.0"
 [xml]$mainProjectXml = Get-Content -LiteralPath (Join-Path $root "src\Banji\Banji.csproj") -Raw
 $versionNode = $mainProjectXml.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1
 if ($versionNode -and $versionNode.Version) { $version = [string]$versionNode.Version }

@@ -214,18 +214,23 @@ if ($SkipLaunchTest) {
 } else {
     # 用 BANJI_INSTANCE_SUFFIX 隔离出独立实例：机器上即使还有别的班机实例（开发调试/无法结束的旧实例），
     # 也不会被单实例机制拦下，可以干净地验证“安装后的 exe 能正常启动”。
+    # v1.6 起使用随机后缀，避免与其它并行 QA 的隔离实例撞名（撞名会导致 --cmd exit 被别的实例吃掉、自测卡住）。
     Stop-BanjiFromDir $installFull
     Start-Sleep -Milliseconds 400
     $oldSuffix = $env:BANJI_INSTANCE_SUFFIX
-    $env:BANJI_INSTANCE_SUFFIX = "selftest"
+    $testSuffix = "selftest-" + [guid]::NewGuid().ToString("N").Substring(0, 6)
+    $env:BANJI_INSTANCE_SUFFIX = $testSuffix
     try {
         $appProcess = Start-Process -FilePath (Join-Path $installFull "Banji.exe") -PassThru
         Start-Sleep -Seconds 5
         $appProcess.Refresh()
-        Assert-True (-not $appProcess.HasExited) "安装后的 Banji.exe 能正常启动并保持运行（隔离实例）"
+        Assert-True (-not $appProcess.HasExited) "安装后的 Banji.exe 能正常启动并保持运行（隔离实例 $testSuffix）"
         if (-not $appProcess.HasExited) {
-            # 用隔离管道让它正常退出，再兜底强杀
-            Start-Process -FilePath (Join-Path $installFull "Banji.exe") -ArgumentList "--cmd", "exit" -Wait -ErrorAction SilentlyContinue | Out-Null
+            # 用隔离管道让它正常退出；加超时防止并行 QA/单实例干扰导致 -Wait 卡死
+            $exitProc = Start-Process -FilePath (Join-Path $installFull "Banji.exe") -ArgumentList "--cmd", "exit" -PassThru -ErrorAction SilentlyContinue
+            if ($exitProc -and -not $exitProc.WaitForExit(10000)) {
+                try { $exitProc.Kill() } catch { /* ignore */ }
+            }
             Start-Sleep -Milliseconds 1200
             $appProcess.Refresh()
             if (-not $appProcess.HasExited) { Stop-Process -Id $appProcess.Id -Force -ErrorAction SilentlyContinue }

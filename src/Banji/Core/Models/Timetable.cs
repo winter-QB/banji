@@ -1,4 +1,4 @@
-namespace Banji.Core.Models;
+﻿namespace Banji.Core.Models;
 
 /// <summary>单双周标记（v1.4.0）。</summary>
 public enum WeekType
@@ -167,4 +167,18 @@ public sealed class DayOverride
         CourseReplacements = new Dictionary<int, string?>(CourseReplacements),
         CancelledPeriods = new HashSet<int>(CancelledPeriods)
     };
+}
+
+/// <summary>v1.6.0：上课专注便签的吸附位置/朝向（4 角 × 水平/竖直）+ 自由拖动。</summary>
+public enum FocusNotePlacement
+{
+    TopLeftHorizontal = 0,   // 左上角：水平便签，贴左上角向右延伸
+    TopLeftVertical = 1,     // 上左角：竖直便签，贴左上角向下延伸
+    BottomLeftHorizontal = 2,// 左下角：水平便签，贴左下角向右延伸
+    BottomLeftVertical = 3,  // 下左角：竖直便签，贴左下角向上延伸
+    TopRightHorizontal = 4,  // 右上角：水平便签，贴右上角向左延伸
+    TopRightVertical = 5,    // 上右角：竖直便签，贴右上角向下延伸
+    BottomRightHorizontal = 6, // 右下角：水平便签，贴右下角向左延伸
+    BottomRightVertical = 7, // 下右角：竖直便签，贴右下角向上延伸
+    Free = 8                 // 自由拖动
 }
