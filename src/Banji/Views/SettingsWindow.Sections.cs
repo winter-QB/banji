@@ -808,9 +808,27 @@ public partial class SettingsWindow
                     v => Settings.Update(x => x.TimetableIdleFoldMinutes = (int)Math.Round(v)))
             ),
             Card(
-                Row("午间 12:50 强提醒（可选）",
+                FullRow("午间 12:50 强提醒（可选）",
                     "默认关闭：每天 12:50 全屏强提醒 2 分钟并播放语音“十二点五十了，上午自习”；若学校上午自习已有铃声/不需要，保持关闭即可。",
-                    Toggle(s.NapReminderEnabled, v => Settings.Update(x => x.NapReminderEnabled = v)))
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        HorizontalAlignment = HorizontalAlignment.Right,
+                        Children =
+                        {
+                            new TextBlock
+                            {
+                                Text = "⚠ 实验功能，请谨慎开启：因语音提醒为固定录音，不支持调整时间。",
+                                FontFamily = FontRegular,
+                                FontSize = 11.5,
+                                Foreground = new SolidColorBrush(Color.FromRgb(0xD9, 0x2D, 0x20)),
+                                VerticalAlignment = VerticalAlignment.Center,
+                                Margin = new Thickness(0, 0, 14, 0),
+                                TextWrapping = TextWrapping.Wrap
+                            },
+                            Toggle(s.NapReminderEnabled, v => Settings.Update(x => x.NapReminderEnabled = v))
+                        }
+                    })
             ));
     }
 
