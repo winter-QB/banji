@@ -1,4 +1,4 @@
-﻿using Banji.Core.Models;
+using Banji.Core.Models;
 
 namespace Banji.Core.Settings;
 
@@ -55,6 +55,8 @@ public sealed class AppSettings
     public int TimetableIdleFoldMinutes { get; set; } = 10;
     /// <summary>非全屏气泡提醒保持秒数（默认 7）。</summary>
     public int NoticeBubbleHoldSeconds { get; set; } = 7;
+    /// <summary>班级私有版：每天 12:50 全屏强提醒 + 语音（默认关闭，仅本班电脑开启）。</summary>
+    public bool NapReminderEnabled { get; set; } = false;
 
     // ---------------- v1.4.0：单双周 / 值周·值日 ----------------
     /// <summary>开学第一周星期一（值周轮换起点与单双周锚点共用；null = 未设置，首次配置必填）。</summary>

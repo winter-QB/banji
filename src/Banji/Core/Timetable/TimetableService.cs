@@ -2,6 +2,7 @@ using Banji.Core.Abstractions;
 using Banji.Core.Infrastructure;
 using Banji.Core.IO;
 using Banji.Core.Models;
+using Banji.Core.Schedule;
 
 namespace Banji.Core.Timetable;
 
@@ -247,6 +248,9 @@ public sealed class TimetableService : ITimetableService
         copy.CourseReplacements ??= new Dictionary<int, string?>();
         copy.CancelledPeriods ??= new HashSet<int>();
 
+        // v1.7.0：当天临时时间表归一化（剔非法/排序/Index 连续 1..N；null 或空列表 = 不覆盖）
+        copy.PeriodsOverride = DayPeriodsResolver.NormalizeOverrideField(copy.PeriodsOverride);
+
         lock (_gate)
         {
             if (copy.IsEmpty)
@@ -381,6 +385,13 @@ public sealed class TimetableService : ITimetableService
         {
             ov.CourseReplacements ??= new Dictionary<int, string?>();
             ov.CancelledPeriods ??= new HashSet<int>();
+
+            // v1.7.0：旧 overrides.json 无 periodsOverride → null（兼容）；
+            // 空列表/非法时段归一化为 null（= 不覆盖），避免把无效数据当成“当天时段”。
+            ov.PeriodsOverride = DayPeriodsResolver.NormalizeOverrideField(ov.PeriodsOverride);
         }
+
+        // 归一化后变成“空覆盖”的历史数据直接清理（与 SetOverride 的 IsEmpty 语义一致）
+        _overrides.RemoveAll(o => o.IsEmpty);
     }
 }

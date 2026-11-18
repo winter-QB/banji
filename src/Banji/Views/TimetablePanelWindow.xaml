@@ -54,6 +54,10 @@
                         <TextBlock x:Name="FoldedTopTask" Text="" Margin="0,0,0,3" Visibility="Collapsed"
                                    FontFamily="{StaticResource Font.Medium}" FontSize="11"
                                    Foreground="#2F6BD8" TextTrimming="CharacterEllipsis" />
+                        <!-- v1.7.0：今天有临时时间表（提前放学/缩短课时）时的小标记 -->
+                        <TextBlock x:Name="FoldedTempBadge" Text="今日临时时间表" Margin="0,0,0,3" Visibility="Collapsed"
+                                   FontFamily="{StaticResource Font.Medium}" FontSize="9.5"
+                                   Foreground="#317FFF" TextTrimming="CharacterEllipsis" />
                         <Grid>
                             <TextBlock x:Name="FoldedLabel" Text="下节"
                                        FontFamily="{StaticResource Font.Medium}" FontSize="10.5"

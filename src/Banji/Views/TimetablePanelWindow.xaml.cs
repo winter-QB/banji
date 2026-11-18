@@ -1227,10 +1227,13 @@ public partial class TimetablePanelWindow : Window
 
             var dutyLink = _afterSchoolDutyActive ? "查看值日详情 ›" : _dutySummaryText;
             var weekRight = _weekShortText.Length > 0 ? _weekShortText : "点击展开";
-            var signature = string.Join("|", label, main, secondary ?? "", topText, dutyLink, weekRight, _dutySchedule is not null);
+            var hasTempPeriods = HasTemporaryPeriodsToday(now);
+            var signature = string.Join("|", label, main, secondary ?? "", topText, dutyLink, weekRight,
+                _dutySchedule is not null, hasTempPeriods);
             if (!force && signature == _foldedSignature) return;
             _foldedSignature = signature;
 
+            FoldedTempBadge.Visibility = hasTempPeriods ? Visibility.Visible : Visibility.Collapsed;
             FoldedTopTask.Text = topText;
             FoldedTopTask.Visibility = topText.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
             FoldedLabel.Text = label;
@@ -1244,6 +1247,22 @@ public partial class TimetablePanelWindow : Window
         catch (Exception ex)
         {
             Log.Warn($"刷新课表折叠态失败：{ex.Message}");
+        }
+    }
+
+    /// <summary>v1.7.0：今天是否有“临时时间表”（PeriodsOverride 非空）——折叠卡显示小标记。</summary>
+    private static bool HasTemporaryPeriodsToday(DateTime now)
+    {
+        try
+        {
+            var day = DateOnly.FromDateTime(now);
+            var dayOverride = AppServices.Current.Timetable.GetOverride(day);
+            return dayOverride?.PeriodsOverride is { Count: > 0 };
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"读取今日临时时间表失败：{ex.Message}");
+            return false;
         }
     }
 

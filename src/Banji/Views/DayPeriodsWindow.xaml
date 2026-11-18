@@ -1,0 +1,98 @@
+<Window x:Class="Banji.Views.DayPeriodsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="临时时间表 - 班机"
+        Width="780" Height="820"
+        MinWidth="660" MinHeight="580"
+        WindowStartupLocation="CenterScreen"
+        Background="#F5F7FB"
+        FontFamily="{StaticResource Font.Regular}"
+        UseLayoutRounding="True" SnapsToDevicePixels="True"
+        TextOptions.TextFormattingMode="Ideal">
+
+    <Grid Margin="22,18,22,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- 标题 -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="临时修改今天的课表时间" FontFamily="{StaticResource Font.Bold}"
+                       FontWeight="Bold" FontSize="24" Foreground="#1F2329" />
+            <TextBlock x:Name="DateText" Text="今天" FontSize="13" Foreground="#6B7280"
+                       Margin="0,6,0,0" TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- 说明 -->
+        <Border Grid.Row="1" Background="#EAF2FF" CornerRadius="8" Padding="12,8" Margin="0,14,0,14">
+            <TextBlock FontSize="12" Foreground="#317FFF" TextWrapping="Wrap"
+                       Text="仅今天生效，明天自动恢复；不改动周课表。「清除今天调整」只清除今天的时间段，仍保留当天的临时换课/取消。" />
+        </Border>
+
+        <!-- 课节列表 -->
+        <Border Grid.Row="2" Background="White" CornerRadius="12" BorderBrush="#E5E9F2"
+                BorderThickness="1" Padding="16,14">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0" Margin="0,0,0,12">
+                    <Button x:Name="FortyMinuteButton" DockPanel.Dock="Right" Content="每节 40 分钟"
+                            Style="{StaticResource Button.FormGhost}" Padding="14,6" FontSize="13"
+                            Click="OnFortyMinuteClick"
+                            ToolTip="按各节当前开始时间重排：结束 = 开始 + 40 分钟；若与上一节重叠则顺延。" />
+                    <TextBlock Text="今天的课节" FontFamily="{StaticResource Font.Bold}" FontWeight="Bold"
+                               FontSize="17" Foreground="#1F2329" VerticalAlignment="Center" />
+                </DockPanel>
+
+                <!-- 表头 -->
+                <Grid Grid.Row="1" Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="84" />
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="140" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="76" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="节次" FontSize="12" Foreground="#9AA3AF" />
+                    <TextBlock Grid.Column="1" Text="开始" FontSize="12" Foreground="#9AA3AF" />
+                    <TextBlock Grid.Column="2" Text="结束" FontSize="12" Foreground="#9AA3AF" />
+                    <TextBlock Grid.Column="3" Text="说明" FontSize="12" Foreground="#9AA3AF" />
+                    <TextBlock Grid.Column="4" Text="取消" FontSize="12" Foreground="#9AA3AF"
+                               HorizontalAlignment="Center" />
+                </Grid>
+
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="RowsPanel" />
+                </ScrollViewer>
+
+                <TextBlock x:Name="MessageText" Grid.Row="3" FontSize="12.5" Foreground="#6B7280"
+                           Margin="0,10,0,0" TextWrapping="Wrap" />
+            </Grid>
+        </Border>
+
+        <!-- 底部按钮 -->
+        <Grid Grid.Row="3" Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <StackPanel Grid.Column="0" Orientation="Horizontal">
+                <Button Content="清除今天调整" Style="{StaticResource Button.FormGhost}" Padding="16,7"
+                        FontSize="13.5" Click="OnClearTodayClick" />
+                <Button Content="关闭" Style="{StaticResource Button.FormGhost}" Padding="20,7"
+                        FontSize="13.5" Margin="8,0,0,0" Click="OnCloseClick" />
+            </StackPanel>
+            <Button Grid.Column="1" Content="应用今天" Style="{StaticResource Button.Form}" Padding="26,7"
+                    FontSize="13.5" Click="OnApplyClick" />
+        </Grid>
+    </Grid>
+</Window>

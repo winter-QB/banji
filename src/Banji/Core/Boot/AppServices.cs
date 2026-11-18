@@ -57,6 +57,9 @@ public sealed class AppServices
     /// <summary>v1.7.0：托盘图标（屏幕比例变化后把窗口拉回屏幕的入口）。</summary>
     public TrayService? TrayIcon { get; private set; }
 
+    /// <summary>v1.6.0 班级私有版：每天 12:50 全屏强提醒（默认关闭）。</summary>
+    public NapReminderService? NapReminder { get; private set; }
+
     private readonly List<Window> _windows = new();
     private readonly Dictionary<Window, DateTime> _shownAt = new();
 
@@ -209,6 +212,12 @@ public sealed class AppServices
             Log.Error("创建托盘图标失败", ex);
         }
         Clock.Start();
+        try
+        {
+            NapReminder = new NapReminderService();
+            NapReminder.Start();
+        }
+        catch (Exception ex) { Log.Error("启动午间强提醒服务失败", ex); }
         try { Ai.TryAutoLoad(); }
         catch (Exception ex) { Log.Error("AI 自动加载失败", ex); }
         Log.Info("班机已启动");
@@ -266,6 +275,8 @@ public sealed class AppServices
         {
             TrayIcon?.Dispose();
             TrayIcon = null;
+            NapReminder?.Dispose();
+            NapReminder = null;
         }
         catch (Exception ex)
         {
@@ -383,6 +394,9 @@ public sealed class AppServices
     }
 
     public DutyWindow ShowDutyWindow() => ShowWindow(() => new DutyWindow());
+
+    /// <summary>v1.7.0：临时修改当天时间表（提前放学 / 缩短课时）。</summary>
+    public DayPeriodsWindow ShowDayPeriodsWindow() => ShowWindow(() => new DayPeriodsWindow());
 
     public AiModelDialog ShowAiModelManager()
     {

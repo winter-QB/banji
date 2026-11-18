@@ -1,4 +1,4 @@
-﻿namespace Banji.Core.Models;
+namespace Banji.Core.Models;
 
 /// <summary>单双周标记（v1.4.0）。</summary>
 public enum WeekType
@@ -157,7 +157,11 @@ public sealed class DayOverride
     /// <summary>被取消的节次（如临时放假/活动）。</summary>
     public HashSet<int> CancelledPeriods { get; set; } = new();
 
-    public bool IsEmpty => CourseReplacements.Count == 0 && CancelledPeriods.Count == 0 && string.IsNullOrWhiteSpace(Note);
+    /// <summary>v1.7.0：当天临时时间表（提前放学 / 缩短课时等）。null 或空 = 使用常规时段。</summary>
+    public List<ClassPeriod>? PeriodsOverride { get; set; }
+
+    public bool IsEmpty => CourseReplacements.Count == 0 && CancelledPeriods.Count == 0
+        && (PeriodsOverride is null || PeriodsOverride.Count == 0) && string.IsNullOrWhiteSpace(Note);
 
     public DayOverride Clone() => new()
     {
@@ -165,7 +169,8 @@ public sealed class DayOverride
         Note = Note,
         UpdatedAt = UpdatedAt,
         CourseReplacements = new Dictionary<int, string?>(CourseReplacements),
-        CancelledPeriods = new HashSet<int>(CancelledPeriods)
+        CancelledPeriods = new HashSet<int>(CancelledPeriods),
+        PeriodsOverride = PeriodsOverride?.Select(p => p.Clone()).ToList()
     };
 }
 

@@ -45,7 +45,7 @@ public sealed class ScheduleService : IScheduleService
         var bellOffsetSeconds = Math.Clamp(_settings.Current.BellOffsetSeconds, -MaxBellOffsetSeconds, MaxBellOffsetSeconds);
         var offset = TimeSpan.FromSeconds(bellOffsetSeconds);
 
-        if (timetable is null || timetable.Periods.Count == 0)
+        if (timetable is null)
         {
             return new ScheduleSnapshot
             {
@@ -59,6 +59,20 @@ public sealed class ScheduleService : IScheduleService
         var day = now.DayOfWeek;
         var date = DateOnly.FromDateTime(now);
         var dayOverride = _timetable.GetOverride(date);
+
+        // v1.7.0：当天临时时间表优先（提前放学 / 缩短课时等），否则用周课表时段；
+        // 覆盖按日期 key，只在当天生效，次日自动恢复常规时段。
+        var dayPeriods = DayPeriodsResolver.Resolve(timetable, dayOverride);
+        if (dayPeriods.Count == 0)
+        {
+            return new ScheduleSnapshot
+            {
+                Now = now,
+                Phase = SchedulePhase.NoTimetable,
+                HasTimetable = timetable.Periods.Count > 0,
+                BellOffsetSeconds = bellOffsetSeconds
+            };
+        }
 
         // v1.4.0：单双周（关闭/未注入时 null → 旧逻辑，行为与 v1.3 完全一致）
         var parity = ResolveParity(date);
@@ -78,7 +92,7 @@ public sealed class ScheduleService : IScheduleService
             };
         }
 
-        var occurrences = BuildOccurrences(timetable, day, now.Date, offset, dayOverride, parity);
+        var occurrences = BuildOccurrences(timetable, dayPeriods, day, now.Date, offset, dayOverride, parity);
         if (occurrences.Count == 0)
         {
             // 今天所有课都被取消（或课表结构异常）——视为今天无课。
@@ -155,6 +169,9 @@ public sealed class ScheduleService : IScheduleService
     private static bool HasWeekendSchedule(
         WeekTimetable timetable, DayOfWeek day, DayOverride? dayOverride, WeekParity? parity, bool parityEnabled)
     {
+        // v1.7.0：当天时段覆盖（如调休补课的时间表）本身即视为“当天要上课”
+        if (DayPeriodsResolver.HasPeriodsOverride(dayOverride)) return true;
+
         bool HasCourse(TimetableEntry entry) => !string.IsNullOrWhiteSpace(entry.Course);
         bool MatchesWeek(TimetableEntry entry) => !parityEnabled
             || entry.Weeks == WeekType.All
@@ -175,7 +192,7 @@ public sealed class ScheduleService : IScheduleService
     {
         count = Math.Clamp(count, 1, 60);
         var timetable = _timetable.Current;
-        if (timetable is null || timetable.Periods.Count == 0)
+        if (timetable is null)
             return Array.Empty<ClassBoundary>();
 
         var raw = new List<ClassBoundary>();
@@ -252,15 +269,17 @@ public sealed class ScheduleService : IScheduleService
     }
 
     /// <summary>
-    /// 按课表结构 + 临时换课 + 单双周，生成当天所有“实际要上的课”（已应用铃声误差偏移）。
-    /// 课程解析优先级：临时换课（DayOverride）&gt; 单/双专用 &gt; 通用。
+    /// 按“当天实际时段 + 临时换课 + 单双周”，生成当天所有“实际要上的课”（已应用铃声误差偏移）。
+    /// v1.7.0：<paramref name="periods"/> 由 <see cref="DayPeriodsResolver"/> 解析
+    /// （当天 PeriodsOverride 优先，否则周课表时段；已排序且 Index 连续 1..N）。
+    /// 课程解析优先级：临时换课/取消（DayOverride）&gt; 单/双专用 &gt; 通用。
     /// </summary>
     private static List<CourseOccurrence> BuildOccurrences(
-        WeekTimetable timetable, DayOfWeek day, DateTime date, TimeSpan offset, DayOverride? dayOverride,
-        WeekParity? parity)
+        WeekTimetable timetable, IReadOnlyList<ClassPeriod> periods, DayOfWeek day, DateTime date, TimeSpan offset,
+        DayOverride? dayOverride, WeekParity? parity)
     {
         var list = new List<CourseOccurrence>();
-        foreach (var period in timetable.Periods.OrderBy(p => p.Start).ThenBy(p => p.Index))
+        foreach (var period in periods)
         {
             if (period.End <= period.Start) continue;
             if (dayOverride is not null && dayOverride.CancelledPeriods.Contains(period.Index)) continue;

@@ -806,6 +806,11 @@ public partial class SettingsWindow
                     0, 120, Math.Clamp(s.TimetableIdleFoldMinutes, 0, 120), 1,
                     v => v <= 0 ? "关闭" : $"{(int)Math.Round(v)} 分钟",
                     v => Settings.Update(x => x.TimetableIdleFoldMinutes = (int)Math.Round(v)))
+            ),
+            Card(
+                Row("午间 12:50 强提醒（可选）",
+                    "默认关闭：每天 12:50 全屏强提醒 2 分钟并播放语音“十二点五十了，上午自习”；若学校上午自习已有铃声/不需要，保持关闭即可。",
+                    Toggle(s.NapReminderEnabled, v => Settings.Update(x => x.NapReminderEnabled = v)))
             ));
     }
 

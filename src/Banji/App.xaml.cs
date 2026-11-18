@@ -185,6 +185,14 @@ public partial class App : Application
                     Log.Info($"QA：便签自由位置 = ({freeX}, {freeY})");
                 }
                 break;
+            case "day-periods":
+                AppServices.RunOnUi(() => svc.ShowDayPeriodsWindow());
+                Log.Info("QA：已打开临时时间表窗口");
+                break;
+            case "nap":
+                svc.NapReminder?.TriggerNow();
+                Log.Info("QA：已触发午间 12:50 全屏强提醒");
+                break;
             case "tray":
                 Log.Info($"QA：托盘图标 = {(svc.TrayIcon is null ? "未创建" : "已创建")}，宠物窗口 = {(svc.PetWindow is null ? "无" : $"{svc.PetWindow.Left:0},{svc.PetWindow.Top:0}")}");
                 break;
@@ -370,6 +378,7 @@ public partial class App : Application
                                 case "dutyonpet": x.ShowDutyOnPet = settingValue > 0.5; break;
                                 case "autohidepet": x.AutoHidePetDuringClass = settingValue > 0.5; break;
                                 case "autosimplify": x.AutoSimplifyTimetableDuringClass = settingValue > 0.5; break;
+                                case "napreminder": x.NapReminderEnabled = settingValue > 0.5; break;
                             }
                         });
                         svc.Clock.Refresh();

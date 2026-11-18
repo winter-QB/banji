@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -493,6 +493,9 @@ public partial class MenuFlyout : Window
     private void OnTimetableClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowTimetableEditor());
 
     private void OnPeriodsClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowPeriodSettings());
+
+    /// <summary>v1.7.0：临时调整今天的时间表（提前放学 / 缩短课时）。</summary>
+    private void OnDayPeriodsClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.ShowDayPeriodsWindow());
 
     private void OnExitClick(object sender, RoutedEventArgs e) => CloseThen(() => AppServices.Current.Shutdown());
 
